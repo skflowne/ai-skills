@@ -5,7 +5,7 @@ description: "Post GitHub PR reviews (summary + inline comments), create follow-
 
 # GitHub PR review
 
-Mechanics for interacting with GitHub via `gh`. For review *content* standards, see [review](../review/SKILL.md). For multi-agent orchestration, see [council-review](../council-review/SKILL.md).
+Mechanics for interacting with GitHub via `gh`. For review *content* standards, see [pr-review](../pr-review/SKILL.md). For multi-agent orchestration, see [council-review](../council-review/SKILL.md).
 
 **Prerequisites:** `gh` authenticated (`gh auth status`). Run commands from the git repo root.
 

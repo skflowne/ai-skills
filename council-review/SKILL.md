@@ -18,7 +18,7 @@ Run a fixed panel of four expert reviewers in parallel, then synthesize their re
 Spawn **four** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
 
 ```
-/review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
+/pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
 

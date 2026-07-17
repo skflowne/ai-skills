@@ -44,7 +44,7 @@ Briefly state your chosen panel to the user before spawning (expert name + one-l
 Spawn one sub-agent per chosen expert, **all in parallel**. Each reviewer uses the same base prompt with its assigned role and focus:
 
 ```
-/review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
+/pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
 

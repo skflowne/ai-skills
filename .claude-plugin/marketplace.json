@@ -1,0 +1,16 @@
+{
+  "name": "ai-skills",
+  "owner": {
+    "name": "skflowne"
+  },
+  "description": "Reusable Claude Code skills shared across projects",
+  "plugins": [
+    {
+      "name": "skills",
+      "source": "./",
+      "description": "caveman, council-review, orchestrate, and GitHub issue/PR workflow skills",
+      "skills": ["./"],
+      "strict": false
+    }
+  ]
+}

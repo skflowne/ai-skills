@@ -1,5 +1,5 @@
 ---
-name: review
+name: pr-review
 description: "Instructions to review a given PR"
 ---
 
