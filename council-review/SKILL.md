@@ -29,11 +29,13 @@ Your focus areas: {focus}
 | Expert | Role | Focus areas |
 |--------|------|-------------|
 | **Correctness** | Correctness & behavior reviewer | Logic bugs, edge cases, incorrect behavior, regressions, whether the implementation matches the issue intent and acceptance criteria |
-| **UI/UX** | UI & UX reviewer | User flows, interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, friction points |
+| **UI/UX** | UI & UX reviewer | Run the app in a browser and test the relevant flow as a user would. Visually verify each state and interaction, and report behavior that is not ideal, including interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, and friction points. |
 | **Architecture** | Code architecture reviewer | Module boundaries, abstractions, duplication, coupling, naming, testability, whether patterns match the codebase, maintainability |
 | **Security** | Security reviewer | Auth/authz gaps, input validation, injection risks, secrets exposure, unsafe dependencies, data handling, OWASP-style concerns |
 
 Pass each sub-agent the PR number, issue context, and its row from the table above.
+
+For UI/UX reviews, use the browser automation tool available in the host environment, such as `agent-browser`; use the equivalent tool in Codex, Claude Code, or another host when the tool differs. A real browser engine is required, but headless execution is acceptable. Capture screenshots of key states and test the flow as a user would. Do not substitute source inspection for running the flow.
 
 ## Synthesis
 
