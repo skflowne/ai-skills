@@ -1,5 +1,5 @@
 ---
-name: Implement Issue
+name: implement-issue
 description: Implement a GitHub issue end to end. Use a new branch, subagents for implementation/review/e2e work, local verification, and a final pull request.
 argument-hint: "[GitHub issue URL, issue number, or pasted issue text]"
 ---
