@@ -7,8 +7,12 @@ export const meta = {
   ],
 }
 
+// These sibling workflows are resolved by their final registered name, which
+// the plugin loader prefixes with this plugin's name ("skills", per
+// .claude-plugin/marketplace.json) — not the bare `meta.name` from their own
+// files. If that plugin name ever changes, update these two strings to match.
 phase('Implement')
-const implemented = await workflow('implement-issue-flow', { issueNumber: args.issueNumber })
+const implemented = await workflow('skills:implement-issue-flow', { issueNumber: args.issueNumber })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
 if (!implemented.testsPassed) {
@@ -16,7 +20,7 @@ if (!implemented.testsPassed) {
 }
 
 phase('Review loop')
-const reviewed = await workflow('review-fix-loop', {
+const reviewed = await workflow('skills:review-fix-loop', {
   prNumber: implemented.prNumber,
   repoSlug: args.repoSlug,
   repoPath: args.repoPath,
