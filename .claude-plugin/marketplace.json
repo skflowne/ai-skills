@@ -3,12 +3,12 @@
   "owner": {
     "name": "skflowne"
   },
-  "description": "Reusable Claude Code skills shared across projects",
+  "description": "Reusable Claude Code skills and workflows shared across projects",
   "plugins": [
     {
       "name": "skills",
       "source": "./",
-      "description": "caveman, council-review, orchestrate, and GitHub issue/PR workflow skills",
+      "description": "caveman, council-review, orchestrate, and GitHub issue/PR workflow skills, plus review-fix-loop / implement-issue-flow / issue-to-pr dynamic workflows built on them",
       "skills": ["./"],
       "strict": false
     }
