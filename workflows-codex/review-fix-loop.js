@@ -1,5 +1,6 @@
 // pi/codex-dynamic-workflows port of ../workflows/review-fix-loop.js.
 // Run with: codex-workflow run workflows-codex/review-fix-loop.js --config workflows-codex/codex-workflow.config.ts
+// (or --config workflows-codex/codex-workflow.config.kimi.ts — same tier keys, no script changes).
 //
 // Changes vs. the Claude Code original:
 // - Dropped `agentType` (no tool-bundle registry on this backend — see implement-issue-flow.js port).
@@ -8,8 +9,12 @@
 //   force a full SKILL.md load rather than relying on the model noticing the description).
 //   Requires the skill to be discoverable — this repo is expected to be reachable at
 //   ~/.agents/skills (pi's global skill-discovery location) or a project .agents/skills.
-// - "WebFetch the doc" becomes "fetch the doc via bash/curl" — pi has no dedicated web-fetch
-//   tool by default (its web-search extension is off unless enabled in ~/.pi/agent/settings.json).
+// - "WebFetch"/browser references are kept as-is: pi has real equivalents installed on this
+//   machine (`pi list`) — web_search/web_fetch tools from pi-native-search/pi-web-access, and a
+//   native `agent-browser` tool from pi-agent-browser-native (the exact name the council-review
+//   / yolo-council-review skills already call out as the generic browser-tool convention).
+// - The fix-dispatch step is tagged model:'small' — mechanical code changes under a reviewer's
+//   supervision, same principle as implement-issue-flow.js's Implement/E2E phases.
 
 export const meta = {
   name: 'review-fix-loop',
@@ -35,7 +40,7 @@ const MAX_ROUNDS = 4
 
 const COUNCIL_EXPERTS = [
   { role: 'Correctness & behavior reviewer', focus: 'Logic bugs, edge cases, incorrect behavior, regressions, whether the implementation matches the issue intent and acceptance criteria' },
-  { role: 'UI & UX reviewer', focus: 'Run the app in a browser and test the relevant flow as a user would where a browser tool is available; otherwise inspect UI code statically. Report interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, friction points.' },
+  { role: 'UI & UX reviewer', focus: 'Run the app in a browser and test the relevant flow as a user would. Visually verify each state and interaction; report interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, friction points.' },
   { role: 'Code architecture reviewer', focus: 'Module boundaries, abstractions, duplication, coupling, naming, testability, whether patterns match the codebase, maintainability' },
   { role: 'Security reviewer', focus: 'Auth/authz gaps, input validation, injection risks, secrets exposure, unsafe dependencies, data handling, OWASP-style concerns' },
 ]
@@ -93,7 +98,7 @@ function expertPrompt(prNumber, role, focus) {
 
 ${REPO_CONTEXT}
 
-Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase, or fetch relevant docs via bash/curl (no dedicated web-fetch tool on this backend).
+Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
 
 Your expert role: ${role}
 Your focus areas: ${focus}`
@@ -109,7 +114,7 @@ async function runCouncilPanel(prNumber, round) {
   const done = reports.filter(Boolean).length
   log(`  [council] ${done}/${COUNCIL_EXPERTS.length} expert reviews back, synthesizing`)
 
-  const panel = await agent(`/skill:council-review Synthesize these ${COUNCIL_EXPERTS.length} expert reports for PR #${prNumber} per this skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, fetch (via bash/curl) any doc a claim hinges on, drop speculative/unevidenced findings, note disagreements resolved with evidence.
+  const panel = await agent(`/skill:council-review Synthesize these ${COUNCIL_EXPERTS.length} expert reports for PR #${prNumber} per this skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, fetch (via the web_fetch tool) any doc a claim hinges on, drop speculative/unevidenced findings, note disagreements resolved with evidence.
 
 ${REPO_CONTEXT}
 
@@ -138,7 +143,7 @@ ${REPO_CONTEXT}`,
   const done = reports.filter(Boolean).length
   log(`  [yolo] ${done}/${roster.experts.length} expert reviews back, synthesizing`)
 
-  const panel = await agent(`/skill:yolo-council-review Synthesize these ${roster.experts.length} expert reports for PR #${prNumber} per this skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, fetch (via bash/curl) any doc a claim hinges on, drop speculative/unevidenced findings, attribute by the expert areas assigned (not a fixed taxonomy).
+  const panel = await agent(`/skill:yolo-council-review Synthesize these ${roster.experts.length} expert reports for PR #${prNumber} per this skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, fetch (via the web_fetch tool) any doc a claim hinges on, drop speculative/unevidenced findings, attribute by the expert areas assigned (not a fixed taxonomy).
 
 ${REPO_CONTEXT}
 
@@ -207,7 +212,7 @@ ${REPO_CONTEXT}
 
 Findings to fix:
 ${JSON.stringify(verdict.findings, null, 2)}`,
-    { label: `r${round}:fix` })
+    { label: `r${round}:fix`, model: 'small' })
   log(`Round ${round}: fixes committed and pushed`)
 }
 
