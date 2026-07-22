@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dual Forge"
+  short_description: "Single-author TDD with two smart review gates"
+  default_prompt: "Use $dual-forge to implement this change milestone by milestone with RED/GREEN and persistent correctness and test-coverage reviewers."

@@ -29,13 +29,17 @@ const COUNCIL_EXPERTS = [
 
 const FINDING_ITEM_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
     area: { type: 'string' },
     file: { type: 'string' },
-    description: { type: 'string' },
+    description: { type: 'string', minLength: 1, maxLength: 240, description: 'Concise statement of the issue.' },
+    failureScenario: { type: 'string', minLength: 1, description: 'Concrete sequence or conditions that cause harm and its impact.' },
+    evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, description: 'Concrete supporting evidence, such as file/line references, test output, or documentation.' },
+    finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
   },
-  required: ['severity', 'description'],
+  required: ['severity', 'description', 'failureScenario', 'evidence', 'finders'],
 }
 
 const PANEL_SCHEMA = {
@@ -83,7 +87,9 @@ ${REPO_CONTEXT}
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
 
 Your expert role: ${role}
-Your focus areas: ${focus}`
+Your focus areas: ${focus}
+
+When reporting an issue, identify it as found by your expert role so the synthesis preserves attribution.`
 }
 
 async function runCouncilPanel(prNumber, round) {
@@ -102,7 +108,8 @@ ${REPO_CONTEXT}
 
 ${reports.filter(Boolean).map((r, i) => `### ${COUNCIL_EXPERTS[i].role}\n${r}`).join('\n\n')}
 
-Return the synthesized findings as structured items (severity, area, file, description).`,
+Return the synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.`,
+
     { phase: 'Review', label: `r${round}:council:synthesis`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })
 
   log(`  [council] synthesized: ${panel.findings.length} finding(s) — ${severityBreakdown(panel.findings)}`)
@@ -131,7 +138,8 @@ ${REPO_CONTEXT}
 
 ${reports.filter(Boolean).map((r, i) => `### ${roster.experts[i].role}\n${r}`).join('\n\n')}
 
-Return the synthesized findings as structured items (severity, area, file, description).`,
+Return the synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.`,
+
     { phase: 'Review', label: `r${round}:yolo:synthesis`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })
 
   log(`  [yolo] synthesized: ${panel.findings.length} finding(s) — ${severityBreakdown(panel.findings)}`)
@@ -165,15 +173,16 @@ ${JSON.stringify(councilFindings, null, 2)}
 ## YOLO-council-review findings
 ${JSON.stringify(yoloFindings, null, 2)}
 
-Dedupe overlapping findings across both panels, reconcile severity conflicts with evidence. Before finalizing, fetch what's already been posted on PR #${PR_NUMBER} (existing review comments, prior review rounds, and any linked follow-up issues) — drop findings that were already raised and already addressed or already tracked, unless there's new evidence that changes the picture. done=true only if everything remaining is a nit (no blocker/major/minor). Otherwise done=false, and return every blocker/major/minor finding (nits can be omitted from the list, but note their count in your own reasoning).`,
+Dedupe overlapping findings across both panels, reconcile severity conflicts with evidence. Before finalizing, fetch what's already been posted on PR #${PR_NUMBER} (existing review comments, prior review rounds, and any linked follow-up issues) — drop findings that were already raised and already addressed or already tracked, unless there's new evidence that changes the picture. done=true only if everything remaining is a nit (no blocker/major/minor). Otherwise done=false, and return every blocker/major/minor finding (nits can be omitted from the list, but note their count in your own reasoning). Every returned finding must include 'finders', preserving the complete union of expert roles from all overlapping source findings; do not omit a finder when deduplicating or invent roles.`,
+
     { schema: JUDGE_SCHEMA, label: `r${round}:judge`, agentType: 'general-purpose' })
 
   log(`Round ${round} verdict: ${verdict.done ? 'clean — only nits remain' : `NOT done — ${verdict.findings.length} actionable finding(s): ${severityBreakdown(verdict.findings)}`}`)
   if (verdict.findings.length) {
-    for (const f of verdict.findings) log(`  - [${f.severity}] ${f.area ? `(${f.area}) ` : ''}${f.file ? `${f.file}: ` : ''}${f.description}`)
+    for (const f of verdict.findings) log(`  - [${f.severity}] [found by: ${f.finders.join(', ')}] ${f.area ? `(${f.area}) ` : ''}${f.file ? `${f.file}: ` : ''}${f.description}`)
   }
 
-  await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${round}'s verified findings (severity-ranked, sectioned by expert area), with inline comments where file/line evidence supports it. event: COMMENT.
+  await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${round}'s verified findings (severity-ranked, sectioned by expert area), with every finding's complete list of expert finders, and inline comments where file/line evidence supports it. event: COMMENT.
 
 ${REPO_CONTEXT}
 

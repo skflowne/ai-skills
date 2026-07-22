@@ -6,21 +6,21 @@
 // Changes vs. the Claude Code original (see CLAUDE.md "Critical invariants" in
 // codex-dynamic-workflows for why): dropped `agentType` (a Claude-Code-specific named-agent
 // hint with no equivalent tool-bundle registry here — pi's bash/read/edit/write/grep/find/ls
-// tool set is the same regardless of the name). Model tiers are generic, provider-agnostic
-// routing keys resolved by the config ('large' for planning/reviewing/judging, 'small' for
-// mechanical implementation work under a reviewer's supervision, untagged calls fall through
-// to the config's default/"medium" tier) — never a concrete vendor model name.
+// tool set is the same regardless of the name). Role providers are generic, backend-agnostic
+// routing keys resolved by the config (`design`, `review`, `judge`, `implement`, `fix`, `test`);
+// untagged coordination calls fall through to the config's `general` default. The workflow never
+// names a concrete vendor model.
 
 export const meta = {
   name: 'implement-issue-flow',
   description: 'Implement a GitHub issue end to end (design, implement, review, e2e, final review, PR) fully unattended',
   phases: [
     { title: 'Setup' },
-    { title: 'Design', model: 'large' },
-    { title: 'Implement', model: 'small' },
-    { title: 'Initial review', model: 'large' },
-    { title: 'E2E', model: 'small' },
-    { title: 'Final review', model: 'large' },
+    { title: 'Design' },
+    { title: 'Implement' },
+    { title: 'Initial review' },
+    { title: 'E2E' },
+    { title: 'Final review' },
     { title: 'Ship' },
   ],
 }
@@ -82,7 +82,7 @@ const TEST_SCHEMA = {
 
 async function reviewJudgeFix(label, reviewPrompt, fixPromptPrefix) {
   const review = await agent(reviewPrompt, {
-    label: `${label}:review`, model: 'large', schema: FINDINGS_SCHEMA,
+    label: `${label}:review`, provider: 'review', schema: FINDINGS_SCHEMA,
   })
 
   if (!review.findings.length) return { fixed: [], rationale: 'no findings reported' }
@@ -90,14 +90,13 @@ async function reviewJudgeFix(label, reviewPrompt, fixPromptPrefix) {
   const judged = await agent(`Judge these review findings with a critical mindset — drop anything speculative or lacking evidence, keep what's real and worth fixing now:
 
 ${JSON.stringify(review.findings, null, 2)}`,
-    { label: `${label}:judge`, model: 'large', schema: JUDGE_SCHEMA })
+    { label: `${label}:judge`, provider: 'judge', schema: JUDGE_SCHEMA })
 
   if (!judged.actionable.length) return { fixed: [], rationale: judged.rationale }
 
-  // Fixing is mechanical execution under a reviewer's supervision, not judgment — small tier
-  // even when reviewJudgeFix itself is invoked from a 'large'-tier phase.
+  // Fixing is mechanical execution under a reviewer's supervision, not judgment.
   await agent(`${fixPromptPrefix}\n\nFindings to fix:\n${JSON.stringify(judged.actionable, null, 2)}\n\nCommit your fixes when done.`,
-    { label: `${label}:fix`, model: 'small' })
+    { label: `${label}:fix`, provider: 'fix' })
 
   return { fixed: judged.actionable, rationale: judged.rationale }
 }
@@ -110,9 +109,9 @@ log(`Branch ready: ${branch}`)
 phase('Design')
 const [implPlan, e2ePlan] = await parallel([
   () => agent(`Fetch issue #${args.issueNumber} yourself. Consider how the new code fits within the existing codebase and craft an implementation plan. Return the plan.`,
-    { label: 'design:impl-plan', model: 'large' }),
+    { label: 'design:impl-plan', provider: 'design' }),
   () => agent(`Fetch issue #${args.issueNumber} yourself. Consider what needs to be tested in e2e so that, once these tests pass, the implementation can be considered robust and faithful to the issue's intent, with confidence future regressions will be caught. Return the e2e plan.`,
-    { label: 'design:e2e-plan', model: 'large' }),
+    { label: 'design:e2e-plan', provider: 'design' }),
 ])
 
 await agent(`Post these two plans as comments on issue #${args.issueNumber} via gh issue comment — implementation plan and e2e plan, clearly labeled.
@@ -131,7 +130,7 @@ await agent(`Fetch issue #${args.issueNumber} yourself. On branch ${branch}, imp
 ${implPlan}
 
 Adopt a critical mindset — ensure the change fits the codebase and exposes sensible interfaces for future reuse. Commit your work.`,
-  { label: 'implement', model: 'small' })
+  { label: 'implement', provider: 'implement' })
 
 phase('Initial review')
 const initialFix = await reviewJudgeFix(
@@ -147,10 +146,10 @@ await agent(`On branch ${branch}, implement the e2e tests per this plan:
 ${e2ePlan}
 
 Commit your work.`,
-  { label: 'e2e:implement', model: 'small' })
+  { label: 'e2e:implement', provider: 'implement' })
 
 const testResults = await agent(`On branch ${branch}, run the relevant e2e tests plus any required lint, typecheck, unit, and integration checks for this project (discover the correct commands from the repo, e.g. package.json scripts). Report whether everything passed and include failure details if not.`,
-  { label: 'e2e:run-tests', schema: TEST_SCHEMA, model: 'small' })
+  { label: 'e2e:run-tests', schema: TEST_SCHEMA, provider: 'test' })
 log(`Tests: ${testResults.passed ? 'passed' : 'FAILED'} — ${testResults.summary}`)
 
 phase('Final review')
@@ -168,7 +167,7 @@ log(`Final review: ${finalFix.fixed.length} finding(s) fixed`)
 let finalTests = testResults
 if (finalFix.fixed.length) {
   finalTests = await agent(`On branch ${branch}, rerun the tests affected by the fixes just applied (or the full suite if unsure which are affected). Report pass/fail.`,
-    { label: 'final-review:rerun-tests', schema: TEST_SCHEMA, model: 'small' })
+    { label: 'final-review:rerun-tests', schema: TEST_SCHEMA, provider: 'test' })
   log(`Retest: ${finalTests.passed ? 'passed' : 'FAILED'} — ${finalTests.summary}`)
 }
 

@@ -46,7 +46,7 @@ Spawn one sub-agent per chosen expert, **all in parallel**. Each reviewer uses t
 ```
 /pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
-Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
+Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a concrete failure scenario explaining why it is bad, and evidence (for example file/line references, a test result, or authoritative documentation).
 
 Your expert role: {role}
 Your focus areas: {focus}
@@ -63,6 +63,7 @@ Your job is to analyze all reviewer reports with a critical mindset — do not a
 - Drop findings that lack evidence or are speculative.
 - Note where experts disagree and resolve with code/issue evidence.
 - Attribute findings by the expert area you assigned, not by a fixed taxonomy.
+- Preserve each finding's concise description, failure scenario, and evidence through deduplication; a finding missing any of these is invalid.
 
 ## Handoff
 

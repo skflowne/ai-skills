@@ -8,7 +8,7 @@
 
 export const meta = {
   name: 'issue-to-pr',
-  description: 'Implement a GitHub issue end to end, then loop council + yolo-council review/fix until only nits remain (pi backend)',
+  description: 'Implement a GitHub issue end to end, then loop council + yolo-council review/fix until only nits remain',
   phases: [
     { title: 'Implement' },
     { title: 'Review loop' },

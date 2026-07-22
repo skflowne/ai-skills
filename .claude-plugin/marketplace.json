@@ -8,7 +8,7 @@
     {
       "name": "skills",
       "source": "./",
-      "description": "caveman, council-review, orchestrate, and GitHub issue/PR workflow skills, plus review-fix-loop / implement-issue-flow / issue-to-pr dynamic workflows built on them",
+      "description": "caveman, council-review, orchestrate, and GitHub issue/PR workflow skills, plus review-fix-loop / implement-issue-flow / fast-implement / issue-to-pr / fast-issue-to-pr dynamic workflows built on them",
       "skills": ["./"],
       "strict": false
     }

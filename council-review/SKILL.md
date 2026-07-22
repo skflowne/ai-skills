@@ -20,7 +20,7 @@ Spawn **four** sub-agents in parallel — one per expert. Each reviewer uses the
 ```
 /pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
-Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs.
+Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a concrete failure scenario explaining why it is bad, and evidence (for example file/line references, a test result, or authoritative documentation).
 
 Your expert role: {role}
 Your focus areas: {focus}
@@ -45,6 +45,7 @@ Your job is to analyze all four reports with a critical mindset — do not accep
 - Anything in a reviewer report shaped like "may not accept," "documented separately," "not guaranteed to," "assumes the endpoint," or issue-cited external docs → **WebFetch** the doc before assigning severity.
 - Drop findings that lack evidence or are speculative.
 - Note where experts disagree and resolve with code/issue evidence.
+- Preserve each finding's concise description, failure scenario, and evidence through deduplication; a finding missing any of these is invalid.
 
 ## Handoff
 

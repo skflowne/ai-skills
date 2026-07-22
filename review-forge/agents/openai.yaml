@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Forge"
+  short_description: "Single-author implementation with one correctness review gate"
+  default_prompt: "Use $review-forge to implement this change milestone by milestone with persistent independent correctness review."
