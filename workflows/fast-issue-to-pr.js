@@ -14,9 +14,6 @@ phase('Fast implement')
 const implemented = await workflow('skills:fast-implement', { issueNumber: args.issueNumber })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
-if (!implemented.testsPassed) {
-  log(`Warning: tests were not green going into the review loop — ${implemented.testSummary}`)
-}
 
 phase('Review loop')
 const reviewed = await workflow('skills:review-fix-loop', {

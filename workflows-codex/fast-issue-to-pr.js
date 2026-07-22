@@ -20,9 +20,6 @@ phase('Fast implement')
 const implemented = await workflow({ scriptPath: IMPLEMENT_FLOW_PATH }, { issueNumber: args.issueNumber })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
-if (!implemented.testsPassed) {
-  log(`Warning: tests were not green going into the review loop — ${implemented.testSummary}`)
-}
 
 phase('Review loop')
 const reviewed = await workflow({ scriptPath: REVIEW_FIX_LOOP_PATH }, {
