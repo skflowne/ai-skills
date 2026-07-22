@@ -56,7 +56,7 @@ Pass each sub-agent the PR number, issue context, the original goal, and its ass
 
 ## Synthesis
 
-Your job is to analyze all reviewer reports with a critical mindset — do not accept findings at face value.
+Your job is to analyze all reviewer reports with a critical mindset — do not accept findings at face value. The panel performs the primary exploration. Once reports return, adjudicate their findings rather than starting a second broad, file-by-file PR review: investigate only material findings, disagreements, and evidence gaps. Return promptly once those are resolved; do not hunt for unrelated new issues.
 
 - Cross-check overlapping findings; deduplicate and reconcile severity.
 - Anything in a reviewer report shaped like "may not accept," "documented separately," "not guaranteed to," "assumes the endpoint," or issue-cited external docs → **WebFetch** the doc before assigning severity.

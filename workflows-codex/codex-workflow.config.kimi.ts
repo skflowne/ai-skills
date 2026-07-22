@@ -24,7 +24,8 @@ export default {
 
     // Reasoning-heavy roles.
     design: moonshot('kimi-k3', 'high'),
-    supervisor: moonshot('kimi-k3', 'high'),
+    // Council synthesis waits for a reviewer fan-out, then independently validates findings.
+    supervisor: { ...moonshot('kimi-k3', 'high'), agentTimeoutMs: 25 * 60 * 1000 },
     review: moonshot('kimi-k3', 'high'),
     judge: moonshot('kimi-k3', 'high'),
 

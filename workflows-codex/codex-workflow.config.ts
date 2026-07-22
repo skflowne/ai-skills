@@ -25,7 +25,8 @@ export default {
   providers: {
     general: codex('gpt-5.6-sol', 'medium'),
     design: codex('gpt-5.6-sol', 'medium'),
-    supervisor: codex('gpt-5.6-sol', 'high'),
+    // Council synthesis waits for a reviewer fan-out, then independently validates findings.
+    supervisor: { ...codex('gpt-5.6-sol', 'high'), agentTimeoutMs: 25 * 60 * 1000 },
     review: codex('gpt-5.6-terra', 'medium'),
     judge: codex('gpt-5.6-terra', 'medium'),
     implement: codex('gpt-5.6-terra', 'medium'),
