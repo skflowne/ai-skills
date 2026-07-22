@@ -39,6 +39,7 @@ Review-lite maintains one persistent PR workflow-report comment and uses a read-
 - Do not assume this skill is installed through `~/.agents/skills` or linked to `~/projects/ai-skills`. Use the actual installed skill directory. A shared `~/.agents/skills` symlink is supported but optional.
 - Before launching or reporting on a workflow, inspect the running `codex-workflow` processes.
 - Never pass a `timeout` field when launching a workflow. These are long-running tasks, and the harness rejects an invalid timeout before the helper can run.
+- Never terminate a workflow without a workflow ID. If no ID is provided, list the workflows instead of terminating any of them.
 
 ## Procedure
 
