@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Review Loop"
+  short_description: "Single-author TDD with two smart reviewers"
+  default_prompt: "Use $implementation-review-loop to implement this change milestone by milestone with RED/GREEN and persistent correctness and test-coverage reviewers."
