@@ -30,6 +30,25 @@ It literally follows from what was already discussed; state it in your understan
 
 The goal is to get a detailed architecture and implementation plan.
 
+## Work decomposition
+
+Small, self-contained tasks do **not** need decomposition or a parent issue. Keep them as one implementation issue when a single agent can reliably investigate, implement, test, and hand off the complete change with bounded codebase context.
+
+When work exceeds that scope, break it into **reasonably sized, atomic work chunks**. Every such multi-chunk effort must have a **parent orchestration issue**. The parent is the source of truth for the overall outcome and must describe how its child chunks fit together; it must not leave coordination to an implementer to infer. Agents do not have unlimited context, and broad tasks degrade their performance.
+
+The parent orchestration issue must include the child-chunk order, dependency graph, integration points, handoff expectations, cross-chunk acceptance criteria, and final end-to-end verification required to close the parent. Create or link the child issues from it as appropriate. A child issue should link back to its parent and cover only its assigned chunk.
+
+For each chunk, state:
+
+- its narrow outcome and affected area(s),
+- the concrete implementation steps,
+- acceptance criteria and required tests,
+- dependencies on earlier chunks, if any.
+
+Keep chunks independently actionable wherever possible: each should have one coherent responsibility, a reviewable diff, and a clear completion condition. Split work that spans multiple subsystems, requires extensive repository exploration, or combines unrelated concerns. Sequence dependent chunks explicitly; do not hide substantial follow-up work behind vague steps such as “wire everything up” or “finish integration.”
+
+Do not over-split trivial, tightly coupled edits. The goal is the smallest sensible unit an agent can reliably investigate, implement, test, and hand off—not artificial task fragmentation.
+
 ## Posting the issue
 
 When the plan is ready, **do not** call `gh issue create` with inline heredocs. Read and follow [github-issue-create](../github-issue-create/SKILL.md):
