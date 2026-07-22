@@ -13,7 +13,7 @@
 //     --config workflows-codex/codex-workflow.config.ts \
 //     --args '{"issueNumber": 123}'
 
-const codex = (model: string, thinking?: 'medium' | 'high') => ({
+const codex = (model: string, thinking?: 'low' | 'medium' | 'high') => ({
   backend: 'pi' as const,
   piProvider: 'openai-codex',
   model,
@@ -29,6 +29,8 @@ export default {
     supervisor: { ...codex('gpt-5.6-sol', 'high'), agentTimeoutMs: 25 * 60 * 1000 },
     review: codex('gpt-5.6-terra', 'medium'),
     judge: codex('gpt-5.6-terra', 'medium'),
+    // Read-only periodic PR progress scout; keep each pass bounded.
+    reporter: { ...codex('gpt-5.6-luna', 'low'), excludeTools: ['edit', 'write'], agentTimeoutMs: 5 * 60 * 1000 },
     implement: codex('gpt-5.6-terra', 'medium'),
     fix: codex('gpt-5.6-terra', 'medium'),
     // Fix orchestration is mutation-capable and may supervise long-running child agents.

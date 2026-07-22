@@ -28,6 +28,8 @@ export default {
     supervisor: { ...moonshot('kimi-k3', 'high'), agentTimeoutMs: 25 * 60 * 1000 },
     review: moonshot('kimi-k3', 'high'),
     judge: moonshot('kimi-k3', 'high'),
+    // Read-only periodic PR progress scout; keep each pass bounded.
+    reporter: { ...moonshot('kimi-k2.5'), excludeTools: ['edit', 'write'], agentTimeoutMs: 5 * 60 * 1000 },
 
     // Coding roles use Kimi K2.7 Code; test execution uses Kimi K2.5.
     implement: moonshot('kimi-k2.7-code'),

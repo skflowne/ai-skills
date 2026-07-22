@@ -15,7 +15,7 @@ or review pull requests. Never launch one implicitly.
 Interpret the arguments following `/skill:codex-workflow` as:
 
 ```text
-<mode> <issue-or-pr-number> [openai|kimi] [repository-path]
+<mode> <issue-or-pr-number> [openai|kimi] [repository-path] [options]
 ```
 
 Modes:
@@ -28,6 +28,11 @@ Modes:
 - `review-lite` — run the lightweight YOLO-only review/fix loop, using an orchestrator with the `orchestrate` skill for fixes
 
 The backend defaults to `openai`. The repository defaults to Pi's current working directory.
+
+Review-lite maintains one persistent PR workflow-report comment and uses a read-only progress scout every eight minutes, anchored independently to each review and fix start. Meaningful milestones update the comment immediately. Options:
+
+- `--no-pr-reporting` — disable the PR report and progress scout
+- `--pr-report-interval <Nm>` — override the scout interval, for example `--pr-report-interval 12m`
 
 ## Operating rules
 
@@ -45,7 +50,7 @@ The backend defaults to `openai`. The repository defaults to Pi's current workin
 5. Run the helper and wait for completion. Do not add a timeout field:
 
 ```bash
-<installed-skill-directory>/codex-workflow/run.sh <mode> <number> [openai|kimi] [repository-path]
+<installed-skill-directory>/codex-workflow/run.sh <mode> <number> [openai|kimi] [repository-path] [options]
 ```
 
 6. Report the workflow status, run ID, PR URL when present, test status, review-loop status, and any
@@ -61,4 +66,6 @@ failures. If interrupted, report the run ID and the corresponding `codex-workflo
 /skill:codex-workflow fast-issue-to-pr 123
 /skill:codex-workflow review 456 openai
 /skill:codex-workflow review-lite 456 kimi
+/skill:codex-workflow review-lite 456 openai --pr-report-interval 12m
+/skill:codex-workflow review-lite 456 kimi --no-pr-reporting
 ```
