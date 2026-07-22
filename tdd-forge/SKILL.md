@@ -1,9 +1,9 @@
 ---
-name: dual-forge
-description: Implement code changes with one primary author, one persistent independent correctness reviewer, and one persistent automated-test coverage reviewer using milestone-by-milestone RED/GREEN. Use when the user asks for implementation with continuous independent review, test-first development, review after meaningful changes instead of only at the end, or explicitly invokes $dual-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
+name: tdd-forge
+description: Implement code changes with one primary author, one persistent independent correctness reviewer, and one persistent automated-test coverage reviewer using milestone-by-milestone RED/GREEN. Use when the user asks for implementation with continuous independent review, test-first development, review after meaningful changes instead of only at the end, or explicitly invokes $tdd-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
 ---
 
-# Dual Forge
+# TDD Forge
 
 Keep all code and test authorship with the primary agent. Use exactly two independent smart specialists throughout the task:
 
@@ -40,6 +40,10 @@ Give both reviewers only task-local requirements, milestone boundaries, relevant
 Ask the correctness reviewer to identify invariants, regression risks, validation targets, and missing review gates across the plan. Do not ask it to co-design the implementation.
 
 Ask the test-coverage reviewer to design automated tests for milestone 1 only. Require concrete test cases, assertions, fixtures/mocks, commands, and the failure that should prove RED. Do not request tests for later milestones yet and do not reveal the intended implementation.
+
+## Milestones are communication checkpoints
+
+Milestones are purely communication points between the primary agent and reviewers, not stopping points. When reviewers return findings, fix the valid findings; once the milestone is clear, immediately start the next milestone. Do not stop or hand control back merely because a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
 
 ## Run one milestone at a time
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD Forge"
+  short_description: "Single-author TDD with two smart review gates"
+  default_prompt: "Use $tdd-forge to implement this change milestone by milestone with RED/GREEN and persistent correctness and test-coverage reviewers."

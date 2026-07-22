@@ -1,9 +1,9 @@
 ---
-name: review-forge
-description: Implement code changes with one primary author and one persistent independent correctness reviewer using milestone-by-milestone review gates. Use when the user asks for implementation with continuous independent review or explicitly invokes $review-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
+name: supervised-forge
+description: Implement code changes with one primary author and one persistent independent correctness reviewer using milestone-by-milestone review gates. Use when the user asks for implementation with continuous independent review or explicitly invokes $supervised-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
 ---
 
-# Review Forge
+# Supervised Forge
 
 Keep all code and test authorship with the primary agent. Use exactly one independent smart specialist throughout the task:
 
@@ -37,6 +37,10 @@ If the preferred model is unavailable, use the strongest substitute and disclose
 Give the reviewer only task-local requirements, milestone boundaries, relevant paths, or raw artifacts, and instruct it not to edit files.
 
 Ask the reviewer to identify invariants, regression risks, validation targets, and missing review gates across the plan. Do not ask it to co-design the implementation or review automated-test coverage separately.
+
+## Milestones are communication checkpoints
+
+Milestones are purely communication points between the primary agent and reviewer, not stopping points. When a reviewer returns findings, fix the valid findings; once the milestone is clear, immediately start the next milestone. Do not stop or hand control back merely because a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
 
 ## Run one milestone at a time
 
