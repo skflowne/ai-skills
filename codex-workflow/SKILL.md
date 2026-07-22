@@ -29,6 +29,12 @@ Modes:
 
 The backend defaults to `openai`. The repository defaults to Pi's current working directory.
 
+## Operating rules
+
+- Do not assume this skill is installed through `~/.agents/skills` or linked to `~/projects/ai-skills`. Use the actual installed skill directory. A shared `~/.agents/skills` symlink is supported but optional.
+- Before launching or reporting on a workflow, inspect the running `codex-workflow` processes.
+- Never pass a `timeout` field when launching a workflow. These are long-running tasks, and the harness rejects an invalid timeout before the helper can run.
+
 ## Procedure
 
 1. Require a mode and numeric issue/PR number. Ask for missing arguments.
@@ -36,10 +42,10 @@ The backend defaults to `openai`. The repository defaults to Pi's current workin
 3. Run `gh auth status`. If authentication is unavailable, stop and explain.
 4. Inspect `git status --short`. If unrelated uncommitted changes exist, show them and obtain explicit
    confirmation before proceeding; the implementation workflow may stash them.
-5. Run the helper with a long tool timeout and wait for completion:
+5. Run the helper and wait for completion. Do not add a timeout field:
 
 ```bash
-~/.agents/skills/codex-workflow/run.sh <mode> <number> [openai|kimi] [repository-path]
+<installed-skill-directory>/codex-workflow/run.sh <mode> <number> [openai|kimi] [repository-path]
 ```
 
 6. Report the workflow status, run ID, PR URL when present, test status, review-loop status, and any
