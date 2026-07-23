@@ -1,6 +1,6 @@
 export const meta = {
   name: 'fast-issue-to-pr',
-  description: 'Implement a GitHub issue with the dual-forge process, then loop council + yolo-council review/fix until only nits remain',
+  description: 'Implement a GitHub issue with TDD Forge, then loop council + yolo-council review/fix until only nits remain',
   phases: [
     { title: 'Fast implement' },
     { title: 'Review loop' },

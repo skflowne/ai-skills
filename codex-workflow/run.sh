@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+json_string() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '"%s"' "$value"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage: run.sh <issue-to-pr|implement|fast-implement|fast-issue-to-pr|review|review-lite> <issue-or-pr-number> [openai|kimi] [repository-path] [options]
@@ -69,11 +79,12 @@ fi
 
 skills_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 workflow_dir="$skills_root/workflows-codex"
+workflow_dir_json=$(json_string "$workflow_dir")
 
 case "$mode" in
   issue-to-pr)
     workflow="$workflow_dir/issue-to-pr.js"
-    args="{\"issueNumber\":$number}"
+    args="{\"issueNumber\":$number,\"workflowDir\":$workflow_dir_json}"
     ;;
   implement)
     workflow="$workflow_dir/implement-issue-flow.js"
@@ -85,7 +96,7 @@ case "$mode" in
     ;;
   fast-issue-to-pr)
     workflow="$workflow_dir/fast-issue-to-pr.js"
-    args="{\"issueNumber\":$number}"
+    args="{\"issueNumber\":$number,\"workflowDir\":$workflow_dir_json}"
     ;;
   review)
     workflow="$workflow_dir/review-fix-loop.js"

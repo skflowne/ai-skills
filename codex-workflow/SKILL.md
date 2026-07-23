@@ -22,7 +22,7 @@ Modes:
 
 - `issue-to-pr` — complete implementation, open a PR, then run the review/fix loop
 - `implement` — implement the issue and open a PR, without the subsequent review/fix loop
-- `fast-implement` — implement the issue with the dual-forge process and open a PR
+- `fast-implement` — implement the issue with the TDD Forge process and open a PR
 - `fast-issue-to-pr` — run `fast-implement`, then run the review/fix loop
 - `review` — run the full council + YOLO review/fix loop on an existing PR
 - `review-lite` — run the lightweight YOLO-only review/fix loop, using an orchestrator with the `orchestrate` skill for fixes

@@ -2,9 +2,10 @@
 // Run with: codex-workflow run workflows-codex/issue-to-pr.js --config workflows-codex/codex-workflow.config.ts
 //
 // The original resolves siblings via the Claude Code plugin namespace ("skills:implement-issue-flow").
-// codex-dynamic-workflows has no plugin/marketplace layer, so nested workflow() calls here use
-// {scriptPath} instead. Defaults point at this same directory (single-machine setup); override via
-// args if these files ever move or get invoked from a checkout elsewhere.
+// codex-dynamic-workflows has no plugin/marketplace layer, so nested workflow() calls use
+// {scriptPath}. The bundled launcher injects this workflow directory so nested scripts stay
+// colocated when the skill is installed or copied elsewhere. Direct invocations must pass
+// args.workflowDir.
 
 export const meta = {
   name: 'issue-to-pr',
@@ -15,8 +16,12 @@ export const meta = {
   ],
 }
 
-const IMPLEMENT_ISSUE_FLOW_PATH = args.implFlowPath ?? '/home/skflowne/projects/ai-skills/workflows-codex/implement-issue-flow.js'
-const REVIEW_FIX_LOOP_PATH = args.reviewLoopPath ?? '/home/skflowne/projects/ai-skills/workflows-codex/review-fix-loop.js'
+if (typeof args.workflowDir !== 'string') {
+  throw new Error('issue-to-pr requires args.workflowDir; use codex-workflow/run.sh to launch it')
+}
+
+const IMPLEMENT_ISSUE_FLOW_PATH = `${args.workflowDir}/implement-issue-flow.js`
+const REVIEW_FIX_LOOP_PATH = `${args.workflowDir}/review-fix-loop.js`
 
 phase('Implement')
 const implemented = await workflow({ scriptPath: IMPLEMENT_ISSUE_FLOW_PATH }, { issueNumber: args.issueNumber })
