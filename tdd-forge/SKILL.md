@@ -12,6 +12,12 @@ Keep all code and test authorship with the primary agent. Use exactly two indepe
 
 Neither reviewer edits files or runs a competing implementation.
 
+## Continuous execution contract
+
+This is one continuous implementation workflow. A reviewer response is workflow input, never a completion event. After every reviewer response, verify its findings; fix and re-review valid findings; and, when the milestone is clear, immediately begin the next incomplete milestone. A clean response from both reviewers still requires moving to the next milestone.
+
+Do not end the turn, give the user a progress/completion summary, or hand control back because a review arrived or a milestone completed. Before any final response, verify that every planned milestone is complete and the finish procedure has passed. Otherwise, continue the workflow.
+
 ## Plan before editing
 
 When assigned an issue, create a dedicated branch before editing. After the required validation and review gates pass, open a PR for the completed work.
@@ -45,7 +51,7 @@ Ask the test-coverage reviewer to design automated tests for milestone 1 only. R
 
 ## Milestones are communication checkpoints
 
-Milestones are purely communication points between the primary agent and reviewers, not stopping points. When reviewers return findings, fix the valid findings; once the milestone is clear, immediately start the next milestone. Do not stop or hand control back merely because a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
+Milestones are purely communication points between the primary agent and reviewers, not stopping points. Treat every reviewer response, including clean responses from both reviewers, as the trigger to continue the workflow: fix and re-review valid findings, then immediately start the next incomplete milestone. Do not stop or hand control back merely because a review arrived or a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
 
 ## Run one milestone at a time
 
