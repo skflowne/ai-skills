@@ -14,6 +14,8 @@ Neither reviewer edits files or runs a competing implementation.
 
 ## Plan before editing
 
+When assigned an issue, create a dedicated branch before editing. After the required validation and review gates pass, open a PR for the completed work.
+
 1. Read repository instructions and inspect enough context to define task boundaries.
 2. Create an explicit plan of cohesive, preferably vertical and independently testable milestones. Use the plan tool when available.
 3. Put a RED/GREEN cycle and both reviewer gates in every behavior-bearing milestone.
@@ -26,7 +28,7 @@ Do not begin implementation before the plan exists and both reviewers are runnin
 
 Use high-capability reasoning models for both reviewers. Never choose fast, low-thinking, or economy models because review runs in the background.
 
-- OpenAI/Codex: use the latest `sol` model with medium reasoning or higher (currently `gpt-5.6-sol`, `reasoning_effort: medium`).
+- OpenAI/Codex: use the configured reviewer model.
 - Claude: use Opus.
 - Kimi: use Kimi K3.
 - Other runtimes: use the strongest available reasoning/coding model at medium reasoning or higher.
