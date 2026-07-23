@@ -16,7 +16,7 @@ Neither reviewer edits files or runs a competing implementation.
 
 This is one continuous implementation workflow. A reviewer response is workflow input, never a completion event. After every reviewer response, verify its findings; fix and re-review valid findings; and, when the milestone is clear, immediately begin the next incomplete milestone. A clean response from both reviewers still requires moving to the next milestone.
 
-Do not end the turn, give the user a progress/completion summary, or hand control back because a review arrived or a milestone completed. Before any final response, verify that every planned milestone is complete and the finish procedure has passed. Otherwise, continue the workflow.
+After spawning or messaging reviewers, use the `subagent_wait` tool to await their results. Never `end_turn` until every planned milestone is complete and the finish procedure has passed. Do not give the user a progress/completion summary or hand control back because a review arrived or a milestone completed. Before any final response, verify that every planned milestone is complete and the finish procedure has passed. Otherwise, continue the workflow.
 
 ## Plan before editing
 
@@ -51,14 +51,14 @@ Ask the test-coverage reviewer to design automated tests for milestone 1 only. R
 
 ## Milestones are communication checkpoints
 
-Milestones are purely communication points between the primary agent and reviewers, not stopping points. Treat every reviewer response, including clean responses from both reviewers, as the trigger to continue the workflow: fix and re-review valid findings, then immediately start the next incomplete milestone. Do not stop or hand control back merely because a review arrived or a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
+Milestones are purely communication points between the primary agent and reviewers, not stopping points. **DO NOT treat milestone updates as terminal messages.** Treat every reviewer response, including clean responses from both reviewers, as the trigger to continue the workflow: fix and re-review valid findings, then immediately start the next incomplete milestone. Do not stop or hand control back merely because a review arrived or a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
 
 ## Run one milestone at a time
 
 For each milestone:
 
-1. Ask the same test-coverage reviewer to design tests for this milestone only. For milestone 1, use its initial response.
-2. Verify that the proposed tests exercise requirements rather than implementation details. Resolve test-design gaps with the reviewer before coding.
+1. Ask the same test-coverage reviewer to design tests for this milestone only. For milestone 1, use its initial response. Call `subagent_wait` for the design; do not `end_turn` while waiting.
+2. Verify that the proposed tests exercise requirements rather than implementation details. Resolve test-design gaps with the reviewer before coding, calling `subagent_wait` after each follow-up.
 3. As the sole author, implement the agreed automated tests before production code.
 4. Run them and establish RED: they must fail for the missing behavior and for the expected reason, not because of syntax, setup, environment, or unrelated failures.
 5. If tests unexpectedly pass, determine whether behavior already exists or the tests are weak. Strengthen or correct the tests before proceeding.
@@ -68,8 +68,9 @@ For each milestone:
 9. Send the raw milestone diff, requirements, and test output to both reviewers:
    - correctness reviewer: concrete correctness/regression findings ranked by severity with exact file and line references;
    - test reviewer: missing cases, false positives, brittle assertions, inadequate failure proof, and coverage gaps.
-10. Verify findings, fix valid ones, rerun RED/GREEN-relevant validation, and send corrections back to the appropriate reviewer until both report no substantive remaining findings.
-11. Only then mark the milestone complete and request test design for the next milestone.
+10. Call `subagent_wait` for both reviewers. Do not `end_turn` while waiting.
+11. Verify findings, fix valid ones, rerun RED/GREEN-relevant validation, and send corrections back to the appropriate reviewer; call `subagent_wait` after each follow-up until both report no substantive remaining findings.
+12. Only then mark the milestone complete and request test design for the next milestone.
 
 Reuse the same two reviewer processes through follow-up messages. Do not spawn replacements at each gate.
 
@@ -85,14 +86,14 @@ Structure behavior changes so each milestone can demonstrate RED/GREEN. For docu
 - Verify findings against code and requirements; do not accept them mechanically.
 - Explain rejected findings with concrete evidence.
 - Do not build later high-risk layers on an unreviewed milestone.
-- While reviewers run, continue only separable work that cannot invalidate the pending gate.
+- While reviewers run, continue only separable work that cannot invalidate the pending gate, then call `subagent_wait` before advancing the gate. Never `end_turn` instead of waiting.
 - If either reviewer is unavailable, disclose the block; never silently replace independent review with self-review.
 
 ## Finish
 
 1. Run final tests, type checks, lint, builds, and runtime checks appropriate to the complete change.
-2. Send the final complete diff and validation evidence to both reviewers for one last focused pass.
-3. Resolve and re-review all substantive final findings.
+2. Send the final complete diff and validation evidence to both reviewers for one last focused pass; call `subagent_wait` for their results.
+3. Resolve and re-review all substantive final findings, using `subagent_wait` after each follow-up.
 4. Commit, push, publish, or mutate external state only when authorized.
 5. Report milestone RED/GREEN evidence, final validation, both independent review outcomes, model substitutions, and residual risk.
 

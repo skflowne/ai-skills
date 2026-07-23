@@ -15,7 +15,7 @@ The reviewer does not edit files or run a competing implementation. This skill p
 
 This is one continuous implementation workflow. A reviewer response is workflow input, never a completion event. After every reviewer response, verify its findings; fix and re-review valid findings; and, when the milestone is clear, immediately begin the next incomplete milestone. A clean review still requires moving to the next milestone.
 
-Do not end the turn, give the user a progress/completion summary, or hand control back because a review arrived or a milestone completed. Before any final response, verify that every planned milestone is complete and the finish procedure has passed. Otherwise, continue the workflow.
+After spawning or messaging a reviewer, use the `subagent_wait` tool to await its result. Never `end_turn` until every planned milestone is complete and the finish procedure has passed. Do not give the user a progress/completion summary or hand control back because a review arrived or a milestone completed. Before any final response, verify that every planned milestone is complete and the finish procedure has passed. Otherwise, continue the workflow.
 
 ## Plan before editing
 
@@ -48,7 +48,7 @@ Ask the reviewer to identify invariants, regression risks, validation targets, a
 
 ## Milestones are communication checkpoints
 
-Milestones are purely communication points between the primary agent and reviewer, not stopping points. Treat every reviewer response, including a clean review, as the trigger to continue the workflow: fix and re-review valid findings, then immediately start the next incomplete milestone. Do not stop or hand control back merely because a review arrived or a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
+Milestones are purely communication points between the primary agent and reviewer, not stopping points. **DO NOT treat milestone updates as terminal messages.** Treat every reviewer response, including a clean review, as the trigger to continue the workflow: fix and re-review valid findings, then immediately start the next incomplete milestone. Do not stop or hand control back merely because a review arrived or a milestone was reached. The only stopping point is after every planned milestone has been implemented and the finish procedure is complete.
 
 ## Run one milestone at a time
 
@@ -58,9 +58,10 @@ For each milestone:
 2. Run the tests and other relevant validation appropriate to the milestone.
 3. Send the raw milestone diff, requirements, and validation output to the reviewer.
 4. Ask for concrete correctness and regression findings ranked by severity with exact file and line references.
-5. Verify findings against the code and requirements; do not accept them mechanically.
-6. Fix valid findings, rerun relevant validation, and send the corrections back to the reviewer until no substantive findings remain.
-7. Only then mark the milestone complete and proceed to the next one.
+5. Call `subagent_wait` for the reviewer. Do not `end_turn` while waiting.
+6. Verify findings against the code and requirements; do not accept them mechanically.
+7. Fix valid findings, rerun relevant validation, and send the corrections back to the reviewer; call `subagent_wait` after each follow-up until no substantive findings remain.
+8. Only then mark the milestone complete and proceed to the next one.
 
 Reuse the same reviewer process through follow-up messages. Do not spawn replacements at each gate.
 
@@ -75,14 +76,14 @@ For documentation, generated artifacts, or purely mechanical changes where a beh
 - Do not leak intended fixes, defend the design, or prescribe the reviewer's conclusions.
 - Explain rejected findings with concrete evidence.
 - Do not build later high-risk layers on an unreviewed milestone.
-- While the reviewer runs, continue only separable work that cannot invalidate the pending gate.
+- While the reviewer runs, continue only separable work that cannot invalidate the pending gate, then call `subagent_wait` before advancing the gate. Never `end_turn` instead of waiting.
 - If the reviewer is unavailable, disclose the block; never silently replace independent review with self-review.
 
 ## Finish
 
 1. Run final tests, type checks, lint, builds, and runtime checks appropriate to the complete change.
-2. Send the final complete diff and validation evidence to the reviewer for one last focused pass.
-3. Resolve and re-review all substantive final findings.
+2. Send the final complete diff and validation evidence to the reviewer for one last focused pass; call `subagent_wait` for the result.
+3. Resolve and re-review all substantive final findings, using `subagent_wait` after each follow-up.
 4. Commit, push, publish, or mutate external state only when authorized.
 5. Report milestone validation, final validation, the independent review outcome, model substitutions, and residual risk.
 
