@@ -6,7 +6,22 @@
 // Math.random() (Claude's workflow sandbox blocks them). All GitHub I/O, including rendering and
 // timestamping the live PR report comment, is delegated to agents. Harness-specific routing and
 // runner tuning (reporter/orchestrator/supervisor roles, timeouts, tool exclusions) lives in the
-// codex provider config's label routes, not in this script.
+// codex provider config's label routes, not in this script; the model/effort hints on agents here
+// apply to the Claude harness only.
+//
+// Cost/speed design notes:
+// - The panel synthesis agent also judges (done + actionable findings). A separate judge pass
+//   re-did the same evidence verification and paid the findings JSON one more round trip.
+// - The expert roster is composed once and reused for later rounds — the PR doesn't change shape
+//   between fix iterations of the same run.
+// - Hitting the round cap triggers a targeted re-judge of the still-open findings against the
+//   pushed head, not a fresh full-panel review round.
+// - Fix milestones the grouper marks independent are implemented in parallel, each in its own git
+//   worktree + temp branch (plain git commands, so it stays portable and honors repoPath), then one
+//   integration agent cherry-picks the chains onto the PR branch and runs full validation.
+// - Mechanical agents (checkout, push, remote verification, scouting, report writes) run on cheap
+//   tiers; findings JSON is passed compact, never pretty-printed.
+// - The round's PR review comment posts concurrently with the fix round it announces.
 
 export const meta = {
   name: 'review-fix-loop-lite',
@@ -64,13 +79,6 @@ const FINDING_ITEM_SCHEMA = {
   required: ['severity', 'description', 'failureScenario', 'evidence', 'finders'],
 }
 
-const PANEL_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: { findings: { type: 'array', items: FINDING_ITEM_SCHEMA } },
-  required: ['findings'],
-}
-
 const ROSTER_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -103,18 +111,14 @@ const JUDGE_SCHEMA = {
   required: ['done', 'findings'],
 }
 
-const REMOTE_HEAD_SCHEMA = {
+const CHECKOUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  properties: { headSha: { type: 'string', minLength: 1 } },
-  required: ['headSha'],
-}
-
-const BRANCH_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: { branch: { type: 'string', minLength: 1 } },
-  required: ['branch'],
+  properties: {
+    branch: { type: 'string', minLength: 1 },
+    headSha: { type: 'string', minLength: 1 },
+  },
+  required: ['branch', 'headSha'],
 }
 
 const GROUP_SCHEMA = {
@@ -129,9 +133,12 @@ const GROUP_SCHEMA = {
         additionalProperties: false,
         properties: {
           title: { type: 'string', minLength: 1 },
+          // True only when the milestone shares no file/concern with any other milestone — it
+          // gates whether the milestone is implemented in a parallel worktree chain.
+          independent: { type: 'boolean' },
           findings: { type: 'array', minItems: 1, items: FINDING_ITEM_SCHEMA },
         },
-        required: ['title', 'findings'],
+        required: ['title', 'independent', 'findings'],
       },
     },
   },
@@ -147,6 +154,28 @@ const IMPLEMENT_SCHEMA = {
     validationOutput: { type: 'string' },
   },
   required: ['commitSha', 'summary', 'validationOutput'],
+}
+
+const INTEGRATE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    success: { type: 'boolean' },
+    commits: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sha: { type: 'string', minLength: 1 },
+          title: { type: 'string', minLength: 1 },
+        },
+        required: ['sha', 'title'],
+      },
+    },
+    summary: { type: 'string' },
+  },
+  required: ['success', 'commits', 'summary'],
 }
 
 const FIX_COMMIT_SCHEMA = {
@@ -254,7 +283,8 @@ const MAX_DESCRIPTION_CHARS = 400
 // Runaway backstop only. Scouting must cover the whole phase — that is the point of it, and a long
 // fix phase is exactly when visibility matters most — so this is set well above the number of
 // back-to-back passes any real phase fits, not used to ration updates. Per-pass cost is controlled
-// by routing scouts to a cheap tier (see the scout agent's model/effort) instead.
+// by routing scouts to a cheap tier (see the scout agent's model/effort) and by skipping the
+// report write when a pass observed nothing new.
 const MAX_SCOUT_TICKS = 60
 
 function truncate(text, max) {
@@ -352,10 +382,10 @@ ${renderReportBody()}
 --- END BODY ---`, {
       label: 'report:update',
       schema: REPORT_UPDATE_SCHEMA,
-      // The body arrives pre-rendered, so this agent only has to copy it through and run two gh
-      // commands — no reasoning tier needed. Not the cheapest tier though: a botched report is
-      // user-visible, and three failures disable reporting for the rest of the run.
-      model: 'sonnet',
+      // The body arrives pre-rendered, so this agent only copies it through and runs two gh
+      // commands — the cheapest tier handles that. The verify step above plus the 3-failure
+      // fallback below guard against a botched post.
+      model: 'haiku',
       effort: 'low',
     })
     if (result === null || !result.updated) throw new Error(result === null ? 'report agent failed' : result.summary)
@@ -393,6 +423,13 @@ function updateReport(reason) {
 }
 
 async function runScoutPass(phaseName, tick, isSettled) {
+  // The full findings list only orients the scout; re-sending it on every tick pays for the same
+  // JSON dozens of times per phase. After the first pass a count is enough.
+  const findingsContext = tick === 1
+    ? `Current actionable findings:
+${report.findings.length ? report.findings.map(finding => `- [${finding.severity}] ${finding.file ? `${finding.file}: ` : ''}${truncate(finding.description, MAX_DESCRIPTION_CHARS)}`).join('\n') : '- none'}`
+    : `Actionable findings currently being addressed: ${report.findings.length}.`
+
   const result = await agent(`Act as a read-only progress scout for review-lite PR #${PR_NUMBER}. This is progress report ${tick} during ${phaseName}.
 
 ${REPO_CONTEXT}
@@ -401,8 +438,7 @@ Inspect the actual checkout and any relevant sub-agent artifacts or runtime meta
 
 Known panel: ${report.panel.length ? report.panel.map(expert => expert.role).join(', ') : 'not chosen yet'}
 
-Current actionable findings:
-${report.findings.length ? report.findings.map(finding => `- [${finding.severity}] ${finding.file ? `${finding.file}: ` : ''}${truncate(finding.description, MAX_DESCRIPTION_CHARS)}`).join('\n') : '- none'}
+${findingsContext}
 
 Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SCOUT_OBSERVATIONS} observations of at most ${MAX_OBSERVATION_CHARS} characters each. Anything longer is truncated.`, {
     phase: report.currentPhase,
@@ -423,12 +459,20 @@ Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SC
   }
 
   // The schema no longer caps these (a cap there fails the whole call); enforce the size here.
-  report.scoutUpdates.push({
-    phase: phaseName,
-    tick,
+  const next = {
     summary: result === null ? 'Scout report unavailable.' : truncate(result.summary, MAX_SUMMARY_CHARS),
     observations: result === null ? [] : result.observations.slice(0, MAX_SCOUT_OBSERVATIONS).map(observation => truncate(observation, MAX_OBSERVATION_CHARS)),
-  })
+  }
+
+  // Each report write pays the full rendered body twice (prompt + output). A quiet stretch of a
+  // long fix phase would otherwise rewrite an identical comment every tick.
+  const last = report.scoutUpdates[report.scoutUpdates.length - 1]
+  if (last && last.phase === phaseName && last.summary === next.summary && JSON.stringify(last.observations) === JSON.stringify(next.observations)) {
+    log(`${phaseName}: scout pass ${tick} observed nothing new — skipping the report write`)
+    return result !== null
+  }
+
+  report.scoutUpdates.push({ phase: phaseName, tick, ...next })
   await updateReport(`${phaseName} scout report ${tick}`)
   return result !== null
 }
@@ -475,21 +519,31 @@ Your focus areas: ${expert.focus}
 For every finding include severity, concise description, concrete failure scenario, and evidence. Identify it as found by your exact expert role.`
 }
 
+// The tailored panel doesn't change shape between fix iterations of the same PR, so the roster
+// agent (and its full PR/diff/issues fetch) runs once and later rounds reuse the result.
+let cachedRoster = null
+
 async function runYoloPanel(prNumber, round) {
-  const roster = await agent(`Follow the yolo-council-review skill to compose the tailored expert panel for PR #${prNumber}. Fetch the PR, linked issues, diff, original goal, and acceptance criteria. Choose 2-6 distinct, non-overlapping expert roles according to the skill. Return only the roster; do not spawn reviewers, synthesize findings, post to GitHub, or ask for approval.
+  let roster = cachedRoster
+  if (roster) {
+    log(`Round ${round}: reusing the round-1 panel: ${roster.experts.map(expert => expert.role).join(', ')}`)
+  } else {
+    roster = await agent(`Follow the yolo-council-review skill to compose the tailored expert panel for PR #${prNumber}. Fetch the PR, linked issues, diff, original goal, and acceptance criteria. Choose 2-6 distinct, non-overlapping expert roles according to the skill. Return only the roster; do not spawn reviewers, synthesize findings, post to GitHub, or ask for approval.
 
 ${REPO_CONTEXT}`, {
-    phase: 'Review',
-    label: `r${round}:yolo:roster`,
-    schema: ROSTER_SCHEMA,
-  })
-  if (roster === null) throw new Error(`Round ${round}: yolo council roster failed`)
+      phase: 'Review',
+      label: `r${round}:yolo:roster`,
+      schema: ROSTER_SCHEMA,
+    })
+    if (roster === null) throw new Error(`Round ${round}: yolo council roster failed`)
+    cachedRoster = roster
 
-  report.panel = roster.experts
-  report.lastMilestone = 'Panel chosen'
-  report.status = `Round ${round}: panel chosen`
-  await updateReport(`round ${round} panel chosen`)
-  log(`Round ${round} panel chosen: ${roster.experts.map(expert => expert.role).join(', ')}`)
+    report.panel = roster.experts
+    report.lastMilestone = 'Panel chosen'
+    report.status = `Round ${round}: panel chosen`
+    await updateReport(`round ${round} panel chosen`)
+    log(`Round ${round} panel chosen: ${roster.experts.map(expert => expert.role).join(', ')}`)
+  }
 
   const reports = await parallel(roster.experts.map(expert => () => agent(expertPrompt(prNumber, expert), {
     phase: 'Review',
@@ -498,42 +552,31 @@ ${REPO_CONTEXT}`, {
   const completedReports = reports.map((result, index) => result ? { expert: roster.experts[index], result } : null).filter(Boolean)
   if (completedReports.length === 0) throw new Error(`Round ${round}: all yolo council reviewers failed`)
 
-  const panel = await agent(`Follow the yolo-council-review skill to synthesize these tailored expert reports for PR #${prNumber}. Critically verify evidence, fetch external documentation when needed, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel already performed the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad review. Do not post to GitHub or ask for approval.
+  // Synthesis and judging are one agent: a separate judge re-verified the same evidence the
+  // synthesizer just verified, with the findings JSON paid through one extra round trip.
+  phase('Judge')
+  const judged = await agent(`Follow the yolo-council-review skill to synthesize these tailored expert reports for PR #${prNumber}, then judge the result (round ${round}). Critically verify evidence, fetch external documentation when needed, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel already performed the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad review. Also fetch existing PR comments, prior review rounds, and linked follow-up issues; drop a prior finding only when the current remote head proves it fixed or a linked issue explicitly defers it. Do not post to GitHub or ask for approval.
 
 ${REPO_CONTEXT}
 
 ${completedReports.map(({ expert, result }) => `### ${expert.role}\nFocus: ${expert.focus}\n${result}`).join('\n\n')}
 
-Return only final structured findings with severity, area, file, concise description, concrete failureScenario, non-empty evidence, and all expert-role finders.`, {
-    phase: 'Review',
-    label: `r${round}:yolo:synthesis`,
-    schema: PANEL_SCHEMA,
+Set done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding with severity, area, file, concise description, concrete failureScenario, non-empty evidence, and all expert-role finders; nits may be omitted.`, {
+    phase: 'Judge',
+    label: `r${round}:yolo:judge`,
+    schema: JUDGE_SCHEMA,
   })
-  if (panel === null) throw new Error(`Round ${round}: yolo council synthesis failed`)
-  log(`Round ${round} panel synthesized ${panel.findings.length} finding(s): ${severityBreakdown(panel.findings)}`)
-  return panel.findings
+  if (judged === null) throw new Error(`Round ${round}: yolo council synthesis/judge failed`)
+  if (!judged.done && judged.findings.length === 0) throw new Error(`Round ${round}: judge returned done=false with no actionable findings`)
+  return judged
 }
 
-async function reviewAndJudge(reviewRound, { final = false } = {}) {
+async function reviewAndJudge(reviewRound) {
   return withPhaseScout(`Review round ${reviewRound}`, async () => {
     phase('Review')
-    log(final ? `Post-fix verification review after round ${MAX_ROUNDS}` : `Round ${reviewRound}/${MAX_ROUNDS}: tailored yolo-council review`)
+    log(`Round ${reviewRound}/${MAX_ROUNDS}: tailored yolo-council review`)
 
-    const yoloFindings = await runYoloPanel(PR_NUMBER, reviewRound)
-    phase('Judge')
-    const judged = await agent(`Judge this tailored yolo-council-review report for PR #${PR_NUMBER} (round ${reviewRound}).
-
-${REPO_CONTEXT}
-
-## YOLO-council-review findings
-${JSON.stringify(yoloFindings, null, 2)}
-
-Validate findings against evidence and reconcile severity conflicts. Fetch existing PR comments, prior review rounds, and linked follow-up issues. Drop a prior finding only when the current remote head proves it fixed or a linked issue explicitly defers it. done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding; nits may be omitted. Preserve every source finder role.`, {
-      schema: JUDGE_SCHEMA,
-      label: `r${reviewRound}:judge`,
-    })
-    if (judged === null) throw new Error(`Round ${reviewRound}: judge failed`)
-    if (!judged.done && judged.findings.length === 0) throw new Error(`Round ${reviewRound}: judge returned done=false with no actionable findings`)
+    const judged = await runYoloPanel(PR_NUMBER, reviewRound)
 
     report.findings = judged.findings
     report.findingsStatus = judged.done ? 'clean' : 'actionable'
@@ -545,6 +588,39 @@ Validate findings against evidence and reconcile severity conflicts. Fetch exist
     for (const finding of judged.findings) {
       log(`  - [${finding.severity}] [found by: ${finding.finders.join(', ')}] ${finding.area ? `(${finding.area}) ` : ''}${finding.file ? `${finding.file}: ` : ''}${finding.description}`)
     }
+    return judged
+  })
+}
+
+// Post-fix verification once the round cap is hit. A fresh full-panel round at that point would be
+// the single most expensive phase re-run only to answer a narrow question — whether the findings
+// that were still open got fixed — so this re-judges exactly those findings against the pushed head.
+async function finalReJudge(verificationRound, openFindings) {
+  return withPhaseScout(`Verification round ${verificationRound}`, async () => {
+    phase('Judge')
+    log(`Post-fix verification after round ${MAX_ROUNDS}: re-judging ${openFindings.length} finding(s) against the pushed head`)
+
+    const judged = await agent(`Verify the post-fix state of PR #${PR_NUMBER}. The fix-round cap is reached, so this is a targeted verification of previously-open findings, not a fresh review.
+
+${REPO_CONTEXT}
+
+Previously-open findings:
+${JSON.stringify(openFindings)}
+
+For each finding, inspect the current remote head${report.finalSha ? ` (expected ${report.finalSha})` : ''}, the commits pushed since the finding was raised, existing PR comments, and linked follow-up issues, and decide whether it is genuinely resolved. Drop a finding only when the remote head proves it fixed or a linked issue explicitly defers it. Set done=true only if no blocker, major, or minor remains. Otherwise return every still-open actionable finding unchanged in substance; preserve every source finder role.`, {
+      label: `r${verificationRound}:final-judge`,
+      schema: JUDGE_SCHEMA,
+    })
+    if (judged === null) throw new Error('Post-fix verification: judge failed')
+    if (!judged.done && judged.findings.length === 0) throw new Error('Post-fix verification: judge returned done=false with no actionable findings')
+
+    report.findings = judged.findings
+    report.findingsStatus = judged.done ? 'clean' : 'actionable'
+    report.lastMilestone = 'Post-fix verification'
+    report.status = judged.done ? 'Post-fix verification: clean' : `Post-fix verification: ${judged.findings.length} finding(s) still open`
+    await updateReport('post-fix verification verdict')
+
+    log(`Post-fix verification verdict: ${judged.done ? 'clean — only nits remain' : `NOT done — ${judged.findings.length} finding(s) still open: ${severityBreakdown(judged.findings)}`}`)
     return judged
   })
 }
@@ -561,7 +637,7 @@ ${final
     : `State that fixes will run for these ${judged.findings.length} finding(s).`}
 
 Findings:
-${JSON.stringify(judged.findings, null, 2)}`, { label: `r${reviewRound}:post` })
+${JSON.stringify(judged.findings)}`, { label: `r${reviewRound}:post` })
   if (result === null) throw new Error(`Round ${reviewRound}: failed to post review`)
   log(`Round ${reviewRound}: review posted to PR #${PR_NUMBER}`)
 }
@@ -586,7 +662,7 @@ ${context}`, {
 // A Workflow agent() call can't spawn a further subagent, so a single agent told to "resolve and
 // verify per the supervised-forge skill" can't actually run the skill's persistent-reviewer
 // mechanic. This dispatches a genuinely separate, independent agent() for each review pass instead.
-async function runFixReviewGate(branch, label, subject, context, fixPromptPrefix) {
+async function runFixReviewGate(label, subject, context, fixPromptPrefix) {
   let findings = actionableFix(await requestFixReview(label, subject, context))
   const fixed = []
   const fixCommits = []
@@ -598,7 +674,7 @@ async function runFixReviewGate(branch, label, subject, context, fixPromptPrefix
 ${REPO_CONTEXT}
 
 Findings to resolve:
-${JSON.stringify(findings, null, 2)}
+${JSON.stringify(findings)}
 
 Rerun the relevant validation and commit your fixes with a message starting "${label} fix r${round}:". Return the commit sha.`, {
       label: `${label}:fix:r${round}`,
@@ -616,95 +692,174 @@ Rerun the relevant validation and commit your fixes with a message starting "${l
   return { fixed, openFindings: findings, fixCommits }
 }
 
-async function runFix(round, findings) {
-  const beforeFix = await agent(`Fetch PR #${PR_NUMBER} from GitHub and return its current remote head commit SHA. Do not use a local branch SHA.
-
-${REPO_CONTEXT}`, {
-    label: `r${round}:fix:before-head`,
-    schema: REMOTE_HEAD_SCHEMA,
-  })
-  if (beforeFix === null || !beforeFix.headSha) throw new Error(`Round ${round}: could not establish the remote PR head; refusing to dispatch fixes`)
-  if (!report.startingSha) report.startingSha = beforeFix.headSha
-
-  return withPhaseScout(`Fix round ${round}`, async () => {
-    phase('Fix')
-    log(`Round ${round}: dispatching fixes for ${findings.length} finding(s) from ${beforeFix.headSha}`)
-
-    const checkout = await agent(`Check out PR #${PR_NUMBER}'s branch locally (fetch first) and confirm its remote head is exactly ${beforeFix.headSha}. Do not edit or commit anything. Return the branch name.
-
-${REPO_CONTEXT}`, {
-      label: `r${round}:fix:checkout`,
-      schema: BRANCH_SCHEMA,
-      agentType: 'general-purpose',
-    })
-    if (checkout === null || !checkout.branch) throw new Error(`Round ${round}: could not check out PR #${PR_NUMBER}'s branch at the expected head ${beforeFix.headSha}`)
-    const branch = checkout.branch
-
-    const grouped = await agent(`Group these PR #${PR_NUMBER} review findings into cohesive fix milestones — batch findings touching the same area/file/concern together, keep unrelated concerns separate. Return each milestone's exact findings unchanged (do not drop or reword them); do not implement anything yet.
-
-${REPO_CONTEXT}
-
-Findings:
-${JSON.stringify(findings, null, 2)}`, {
-      label: `r${round}:fix:group`,
-      schema: GROUP_SCHEMA,
-    })
-    if (grouped === null || !grouped.milestones.length) throw new Error(`Round ${round}: could not group findings into fix milestones`)
-    log(`Round ${round}: grouped into ${grouped.milestones.length} fix milestone(s)`)
-
-    const commits = []
-    const stillOpen = []
-    for (const [index, milestone] of grouped.milestones.entries()) {
-      const tag = `r${round}.${index + 1}`
-      const impl = await agent(`On branch ${branch} (PR #${PR_NUMBER}), resolve this review milestone "${milestone.title}".
+// Serial milestone: implement and gate directly on the PR branch in the main checkout.
+async function runSerialMilestone(branch, tag, milestone) {
+  const impl = await agent(`On branch ${branch} (PR #${PR_NUMBER}), resolve this review milestone "${milestone.title}".
 
 ${REPO_CONTEXT}
 
 Findings to resolve:
-${JSON.stringify(milestone.findings, null, 2)}
+${JSON.stringify(milestone.findings)}
 
 Run the relevant tests, lint, typecheck, and other validation. Commit your work with a message starting "Fix ${tag}: ${milestone.title}". Return the commit sha, a concise summary, and the raw validation command output.`, {
-        label: `${tag}:implement`,
-        schema: IMPLEMENT_SCHEMA,
-        agentType: 'general-purpose',
-      })
-      if (impl === null) throw new Error(`Round ${round}: fix milestone ${tag} implementation failed`)
-      commits.push({ sha: impl.commitSha, title: `Fix ${tag}: ${milestone.title}` })
+    label: `${tag}:implement`,
+    schema: IMPLEMENT_SCHEMA,
+    agentType: 'general-purpose',
+  })
+  if (impl === null) throw new Error(`Fix milestone ${tag} implementation failed`)
+  const commits = [{ sha: impl.commitSha, title: `Fix ${tag}: ${milestone.title}` }]
 
-      const gate = await runFixReviewGate(branch, tag,
-        `fix milestone ${tag} ("${milestone.title}") on PR #${PR_NUMBER} branch ${branch}, commit ${impl.commitSha}`,
-        `Original findings this milestone was meant to resolve:
-${JSON.stringify(milestone.findings, null, 2)}
+  const gate = await runFixReviewGate(tag,
+    `fix milestone ${tag} ("${milestone.title}") on PR #${PR_NUMBER} branch ${branch}, commit ${impl.commitSha}`,
+    `Original findings this milestone was meant to resolve:
+${JSON.stringify(milestone.findings)}
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
-        `On branch ${branch}, resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}).`)
-      for (const sha of gate.fixCommits) commits.push({ sha, title: `Fix ${tag} follow-up: ${milestone.title}` })
-      if (gate.openFindings.length) stillOpen.push(...gate.openFindings)
-      log(`${tag}: fix review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} (${gate.fixed.length} fixed)`)
+    `On branch ${branch}, resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}).`)
+  for (const sha of gate.fixCommits) commits.push({ sha, title: `Fix ${tag} follow-up: ${milestone.title}` })
+  log(`${tag}: fix review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} (${gate.fixed.length} fixed)`)
+  return { commits, openFindings: gate.openFindings }
+}
+
+// Parallel milestone: the whole implement + review-gate chain runs on its own temp branch in a git
+// worktree the agents create with plain git commands (portable across harnesses, and correct even
+// when the workflow's cwd is not the target checkout — repoPath decides where the repo is). The
+// chain's commits are cherry-picked onto the PR branch by the integration agent afterwards.
+async function runParallelMilestone(branch, baseSha, tag, milestone) {
+  const chainBranch = `rfl/pr${PR_NUMBER}/${tag}`
+  const impl = await agent(`Resolve review milestone "${milestone.title}" for PR #${PR_NUMBER}. Other milestones are being fixed in parallel, so do not touch branch ${branch} or the main checkout's working tree: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`).
+
+${REPO_CONTEXT}
+
+Findings to resolve:
+${JSON.stringify(milestone.findings)}
+
+Run whatever validation is feasible inside the worktree (set up dependencies there if the project needs them); full-project validation runs again at integration. Commit your work with a message starting "Fix ${tag}: ${milestone.title}", then run \`git worktree remove --force <that dir>\` (the branch and its commits survive) and return the commit sha, a concise summary, and the raw validation command output.`, {
+    label: `${tag}:implement`,
+    schema: IMPLEMENT_SCHEMA,
+    agentType: 'general-purpose',
+  })
+  if (impl === null) throw new Error(`Fix milestone ${tag} implementation failed`)
+
+  const gate = await runFixReviewGate(tag,
+    `fix milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch} (parallel fix chain for PR #${PR_NUMBER})`,
+    `The chain's commits live on branch ${chainBranch}, based on ${baseSha}. Inspect them read-only from the main checkout (e.g. git log/diff ${baseSha}..${chainBranch}) — do not check that branch out.
+
+Original findings this milestone was meant to resolve:
+${JSON.stringify(milestone.findings)}
+
+Raw validation output from the implementer:
+${impl.validationOutput}`,
+    `Resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}) on temp branch ${chainBranch}. Other milestones are being fixed in parallel, so do not touch the main checkout's working tree: run \`git worktree add <fresh temp dir> ${chainBranch}\`, do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`)
+  return { tag, milestone, chainBranch, openFindings: gate.openFindings, fixedCount: gate.fixed.length }
+}
+
+async function runFix(round, findings) {
+  return withPhaseScout(`Fix round ${round}`, async () => {
+    phase('Fix')
+
+    // One mechanical agent establishes both the local checkout and the verified remote head.
+    const checkout = await agent(`Check out PR #${PR_NUMBER}'s branch locally: fetch first, check the branch out, and confirm the local HEAD equals the PR's current remote head on GitHub (e.g. \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json headRefOid\`); if they differ, hard-reset the local branch to the remote head. Do not edit or commit anything. Return the branch name and the remote head sha as reported by GitHub — never a local-only sha.
+
+${REPO_CONTEXT}`, {
+      label: `r${round}:fix:checkout`,
+      schema: CHECKOUT_SCHEMA,
+      agentType: 'general-purpose',
+      model: 'haiku',
+      effort: 'low',
+    })
+    if (checkout === null || !checkout.branch || !checkout.headSha) throw new Error(`Round ${round}: could not check out PR #${PR_NUMBER}'s branch at a verified remote head; refusing to dispatch fixes`)
+    const branch = checkout.branch
+    const baseSha = checkout.headSha
+    if (!report.startingSha) report.startingSha = baseSha
+    log(`Round ${round}: dispatching fixes for ${findings.length} finding(s) from ${baseSha}`)
+
+    const grouped = await agent(`Group these PR #${PR_NUMBER} review findings into cohesive fix milestones — batch findings touching the same area/file/concern together, keep unrelated concerns separate. Mark a milestone independent=true only when fixing it will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel and then merged, so when in doubt use independent=false. Return each milestone's exact findings unchanged (do not drop or reword them); do not implement anything yet.
+
+${REPO_CONTEXT}
+
+Findings:
+${JSON.stringify(findings)}`, {
+      label: `r${round}:fix:group`,
+      schema: GROUP_SCHEMA,
+      // Light judgment, but the independent flags gate parallel execution and a wrong "true"
+      // costs an integration conflict — keep it one tier above the cheapest.
+      model: 'sonnet',
+      effort: 'low',
+    })
+    if (grouped === null || !grouped.milestones.length) throw new Error(`Round ${round}: could not group findings into fix milestones`)
+
+    const entries = grouped.milestones.map((milestone, index) => ({ milestone, tag: `r${round}.${index + 1}` }))
+    const parallelEntries = entries.filter(entry => entry.milestone.independent)
+    // One independent milestone gains nothing from worktree indirection — parallelism needs two.
+    const runInParallel = parallelEntries.length >= 2
+    const serialEntries = runInParallel ? entries.filter(entry => !entry.milestone.independent) : entries
+    log(`Round ${round}: grouped into ${entries.length} fix milestone(s)${runInParallel ? ` — ${parallelEntries.length} in parallel worktree chains, ${serialEntries.length} serial` : ''}`)
+
+    const commits = []
+    const stillOpen = []
+
+    if (runInParallel) {
+      const chains = await parallel(parallelEntries.map(entry => () => runParallelMilestone(branch, baseSha, entry.tag, entry.milestone)))
+      if (chains.some(chain => chain === null)) throw new Error(`Round ${round}: a parallel fix milestone failed`)
+      for (const chain of chains) {
+        stillOpen.push(...chain.openFindings)
+        log(`${chain.tag}: fix review gate ${chain.openFindings.length ? `left ${chain.openFindings.length} open finding(s)` : 'clean'} (${chain.fixedCount} fixed)`)
+      }
+
+      const integrated = await agent(`On branch ${branch} (PR #${PR_NUMBER}) in the main checkout, integrate these parallel fix chains by cherry-picking each chain's range onto ${branch}, in the order listed:
+${chains.map(chain => `- ${chain.tag} "${chain.milestone.title}": git cherry-pick ${baseSha}..${chain.chainBranch}`).join('\n')}
+
+${REPO_CONTEXT}
+
+The chains were all built from ${baseSha} against concerns judged disjoint, so conflicts should be rare; resolve any that appear in the spirit of the original findings rather than aborting:
+${JSON.stringify(findings)}
+
+After integrating, run the project's full validation (tests, lint, typecheck as applicable) on ${branch}. Do not push. Delete the temp chain branches (git branch -D) once integrated. Return success=false if validation fails or integration proves impossible; otherwise success=true plus every commit (sha and title) now in ${baseSha}..HEAD, oldest first — cherry-picking rewrites shas, so report the shas actually on ${branch}.`, {
+        label: `r${round}:fix:integrate`,
+        schema: INTEGRATE_SCHEMA,
+        agentType: 'general-purpose',
+        // Cross-chain conflict resolution plus full validation — worth a strong tier, but not the
+        // session default. (codex routes `*:fix:integrate` to the same tier its opus alias maps to.)
+        model: 'opus',
+      })
+      if (integrated === null || !integrated.success || !integrated.commits.length) throw new Error(`Round ${round}: parallel fix integration failed${integrated ? `: ${integrated.summary}` : ''}`)
+      commits.push(...integrated.commits)
+      log(`Round ${round}: integrated ${parallelEntries.length} parallel chain(s) as ${integrated.commits.length} commit(s) on ${branch}`)
+    }
+
+    for (const entry of serialEntries) {
+      const result = await runSerialMilestone(branch, entry.tag, entry.milestone)
+      commits.push(...result.commits)
+      stillOpen.push(...result.openFindings)
     }
 
     if (stillOpen.length) {
       log(`Round ${round}: ${stillOpen.length} finding(s) still open after all fix milestones — pushing regardless; they'll resurface in the next review round`)
     }
 
-    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${beforeFix.headSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
+    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${baseSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:push`,
       schema: PUSH_SCHEMA,
+      model: 'haiku',
+      effort: 'low',
     })
-    if (pushResult === null || !pushResult.success || !pushResult.headSha || pushResult.headSha === beforeFix.headSha) {
+    if (pushResult === null || !pushResult.success || !pushResult.headSha || pushResult.headSha === baseSha) {
       throw new Error(`Round ${round}: push did not verify a changed remote head: ${pushResult ? pushResult.summary : 'push agent failed'}`)
     }
 
-    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${beforeFix.headSha}, belongs to PR #${PR_NUMBER}, and that these commits exactly describe the pushed range:
-${JSON.stringify(commits, null, 2)}
+    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${baseSha}, belongs to PR #${PR_NUMBER}, and that these commits exactly describe the pushed range:
+${JSON.stringify(commits)}
 Return verified=false on any mismatch.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:verify-remote`,
       schema: FIX_VERIFICATION_SCHEMA,
+      model: 'haiku',
+      effort: 'low',
     })
     if (fixVerification === null || !fixVerification.verified || fixVerification.headSha !== pushResult.headSha) {
       throw new Error(`Round ${round}: independent remote verification failed; refusing to start another review round`)
@@ -737,14 +892,23 @@ try {
   while (!verdict.done && round < MAX_ROUNDS) {
     round++
     verdict = await reviewAndJudge(round)
-    await postReview(round, verdict)
-    if (verdict.done) break
+    if (verdict.done) {
+      await postReview(round, verdict)
+      break
+    }
+    // Posting the round's review to GitHub gates nothing the fixes depend on, so it runs
+    // alongside the fix round. Concurrent with fixes it is reporting, not state — a posting
+    // failure logs a warning instead of killing in-flight fix work.
+    const postPromise = postReview(round, verdict).catch(error => {
+      log(`[warn] Round ${round}: review post failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
     await runFix(round, verdict.findings)
+    await postPromise
   }
 
   if (!verdict.done && round === MAX_ROUNDS) {
     const verificationRound = MAX_ROUNDS + 1
-    verdict = await reviewAndJudge(verificationRound, { final: true })
+    verdict = await finalReJudge(verificationRound, verdict.findings)
     await postReview(verificationRound, verdict, { final: true })
   }
 

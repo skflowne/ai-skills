@@ -52,11 +52,17 @@ export default {
   // specificity order — the yolo/fix sub-roles before their broader `*:judge`/`*:review` fallbacks.
   routes: [
     { match: '*:fix:orchestrator', provider: 'orchestrator' },
-    { match: '*:fix:before-head', provider: 'judge' },
+    { match: '*:fix:checkout', provider: 'judge' },
+    { match: '*:fix:group', provider: 'judge' },
+    // Cross-chain conflict resolution — same role the `opus` model alias maps to, mirroring the
+    // script's `model: 'opus'` hint (routes are checked before aliases, so this must match it).
+    { match: '*:fix:integrate', provider: 'design' },
+    { match: '*:fix:push', provider: 'judge' },
     { match: '*:fix:verify-remote', provider: 'judge' },
     { match: '*:yolo:supervisor', provider: 'supervisor' },
     { match: '*:yolo:roster', provider: 'supervisor' },
-    { match: '*:yolo:synthesis', provider: 'supervisor' },
+    // Merged synthesize+judge pass — still the supervisor role, not the lighter `*:judge` tier.
+    { match: '*:yolo:judge', provider: 'supervisor' },
     { match: '*:yolo:*', provider: 'review' },
     { match: '*:council:*', provider: 'review' },
     { match: '*:scout:*', provider: 'reporter' },
