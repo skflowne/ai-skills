@@ -1,23 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-json_string() {
-  local value=$1
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\n'/\\n}
-  value=${value//$'\r'/\\r}
-  value=${value//$'\t'/\\t}
-  printf '"%s"' "$value"
-}
-
 usage() {
   cat >&2 <<'EOF'
 Usage: run.sh <issue-to-pr|implement|fast-implement|fast-issue-to-pr|review|review-lite> <issue-or-pr-number> [openai|kimi] [repository-path] [options]
 
 Review-lite options:
   --no-pr-reporting           Disable the persistent PR workflow report and progress scout
-  --pr-report-interval <Nm>   Set the phase-anchored scout interval (default: 8m)
 EOF
   exit 2
 }
@@ -30,7 +19,6 @@ shift 2
 backend=openai
 repo_path=$PWD
 pr_reporting=true
-pr_report_interval_minutes=8
 pr_reporting_option_seen=false
 
 if [[ $# -gt 0 && $1 != --* ]]; then
@@ -48,17 +36,6 @@ while [[ $# -gt 0 ]]; do
       pr_reporting=false
       pr_reporting_option_seen=true
       shift
-      ;;
-    --pr-report-interval)
-      [[ $# -ge 2 ]] || usage
-      interval=${2%m}
-      [[ $interval =~ ^[1-9][0-9]*$ ]] || {
-        echo "error: --pr-report-interval must be a positive number of minutes, such as 8m" >&2
-        exit 2
-      }
-      pr_report_interval_minutes=$interval
-      pr_reporting_option_seen=true
-      shift 2
       ;;
     *)
       echo "error: unknown option '$1'" >&2
@@ -78,13 +55,13 @@ if [[ $mode != review-lite && $pr_reporting_option_seen == true ]]; then
 fi
 
 skills_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-workflow_dir="$skills_root/workflows-codex"
-workflow_dir_json=$(json_string "$workflow_dir")
+workflow_dir="$skills_root/workflows"
+config_dir="$skills_root/workflows-codex"
 
 case "$mode" in
   issue-to-pr)
     workflow="$workflow_dir/issue-to-pr.js"
-    args="{\"issueNumber\":$number,\"workflowDir\":$workflow_dir_json}"
+    args="{\"issueNumber\":$number}"
     ;;
   implement)
     workflow="$workflow_dir/implement-issue-flow.js"
@@ -96,7 +73,7 @@ case "$mode" in
     ;;
   fast-issue-to-pr)
     workflow="$workflow_dir/fast-issue-to-pr.js"
-    args="{\"issueNumber\":$number,\"workflowDir\":$workflow_dir_json}"
+    args="{\"issueNumber\":$number}"
     ;;
   review)
     workflow="$workflow_dir/review-fix-loop.js"
@@ -104,17 +81,17 @@ case "$mode" in
     ;;
   review-lite)
     workflow="$workflow_dir/review-fix-loop-lite.js"
-    args="{\"prNumber\":$number,\"prReporting\":$pr_reporting,\"prReportIntervalMinutes\":$pr_report_interval_minutes}"
+    args="{\"prNumber\":$number,\"prReporting\":$pr_reporting}"
     ;;
   *) usage ;;
 esac
 
 case "$backend" in
   openai|codex)
-    config="$workflow_dir/codex-workflow.config.ts"
+    config="$config_dir/codex-workflow.config.ts"
     ;;
   kimi)
-    config="$workflow_dir/codex-workflow.config.kimi.ts"
+    config="$config_dir/codex-workflow.config.kimi.ts"
     ;;
   *)
     echo "error: backend must be 'openai' or 'kimi'" >&2

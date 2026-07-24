@@ -95,7 +95,7 @@ function severityBreakdown(findings) {
 }
 
 function expertPrompt(prNumber, role, focus) {
-  return `/pr-review PR #${prNumber}, but don't post inline comments — report your findings to your parent agent instead.
+  return `Follow the pr-review skill to review PR #${prNumber}, but don't post inline comments — report your findings to your parent agent instead.
 
 ${REPO_CONTEXT}
 
@@ -117,7 +117,7 @@ async function runCouncilPanel(prNumber, round) {
   const done = reports.filter(Boolean).length
   log(`  [council] ${done}/${COUNCIL_EXPERTS.length} expert reviews back, synthesizing`)
 
-  const panel = await agent(`Synthesize these ${COUNCIL_EXPERTS.length} council-review expert reports for PR #${prNumber} per the council-review skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, WebFetch any doc a claim hinges on, drop speculative/unevidenced findings, note disagreements resolved with evidence.
+  const panel = await agent(`Follow the council-review skill to synthesize these ${COUNCIL_EXPERTS.length} expert reports for PR #${prNumber} per the skill's synthesis rules: cross-check overlapping findings, dedupe, reconcile severity, fetch any doc a claim hinges on, drop speculative/unevidenced findings, note disagreements resolved with evidence.
 
 ${REPO_CONTEXT}
 
@@ -135,7 +135,7 @@ async function runYoloPanel(prNumber, round) {
   log(`  [yolo] supervisor composing the roster and dispatching reviewer sub-agents`)
   const panel = await agent(`Follow the yolo-council-review skill to run the complete tailored council review for PR #${prNumber}. You are the panel supervisor: fetch the PR, linked issues, diff, and original goal; compose a distinct 2-6 expert roster; then spawn one reviewer sub-agent per expert, all in parallel. The children are reviewer roles, not supervisors. Give each child the PR and issue context plus its assigned role/focus, and have it follow the pr-review skill without posting comments.
 
-After every reviewer returns, critically synthesize their reports yourself: verify evidence, WebFetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps.
+After every reviewer returns, critically synthesize their reports yourself: verify evidence, fetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps.
 
 ${REPO_CONTEXT}`,
     { phase: 'Review', label: `r${round}:yolo:supervisor`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })
@@ -209,7 +209,7 @@ ${REPO_CONTEXT}`,
   }
 
   log(`Round ${round}: dispatching fixes for ${verdict.findings.length} finding(s) from ${beforeFix.headSha}`)
-  const fixResult = await agent(`Follow the orchestrate skill to resolve and verify these review findings on PR #${PR_NUMBER}'s branch. You are the final implementation orchestrator and verifier for this fix round.
+  const fixResult = await agent(`Follow the supervised-forge skill to resolve and verify these review findings on PR #${PR_NUMBER}'s branch. You are the sole implementer for this fix round, paired with one persistent correctness reviewer per the skill.
 
 ${REPO_CONTEXT}
 
@@ -217,9 +217,8 @@ The remote PR head before this fix round is ${beforeFix.headSha}.
 
 Requirements:
 - Check out the actual PR branch and confirm its remote head before editing.
-- Plan the partition before dispatching. Group findings so no two parallel sub-agents touch the same file.
-- Keep child-agent returns compact: save detailed reports/logs as artifacts and return only concise summaries and artifact paths. Do not inline full transcripts or test logs.
-- Review every child change yourself, integrate it, and verify every finding against the resulting code.
+- Group the findings into cohesive milestones and put a review gate on each; do not batch every finding into one unreviewed change.
+- Resolve and re-review every reviewer finding before moving to the next milestone, per the skill's continuous execution contract.
 - Run the relevant tests, typecheck, lint, and other project checks; all required checks must pass.
 - Commit and push the fixes to the PR branch.
 - Query GitHub after pushing and confirm the PR's remote head equals the pushed commit. A local git SHA alone is insufficient.

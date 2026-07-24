@@ -30,7 +30,7 @@ const { branch } = await agent(`Fetch issue #${args.issueNumber} yourself. Creat
 log(`Branch ready: ${branch}`)
 
 phase('Implement with TDD Forge')
-const testResults = await agent(`Fetch issue #${args.issueNumber} yourself. On branch ${branch}, use the $tdd-forge skill to implement the issue end to end.
+const testResults = await agent(`Fetch issue #${args.issueNumber} yourself. On branch ${branch}, follow the tdd-forge skill to implement the issue end to end.
 
 Read and follow the skill's complete process. You own all implementation work: inspect the repository, define and record cohesive testable milestones, choose and implement all appropriate automated coverage (including e2e when warranted), use the persistent independent correctness and test-coverage reviewers, establish RED/GREEN for each milestone, resolve substantive findings, and run final validation. Do not delegate planning, test design, implementation, or validation to a surrounding workflow, and do not post a plan to the issue. Commit the completed implementation only after the TDD Forge gates pass. Report whether final validation passed, a concise summary, and any failures.`,
   { label: 'implement:tdd-forge', schema: TEST_SCHEMA, agentType: 'general-purpose' })
