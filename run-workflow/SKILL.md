@@ -1,14 +1,22 @@
 ---
 name: run-workflow
-description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised, and the fast/legacy variants) with preflighted, validated args. Use only when the user explicitly asks to launch one of these workflows.
-disable-model-invocation: true
+description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised, and the fast/legacy variants) with preflighted, validated args. Use whenever the user asks to implement an issue or review a PR through one of these workflows — including in prose, not just as a slash command. Do not call Workflow() for these entry points without going through here.
 ---
 
 # Run Workflow
 
-This skill is the only supported way to start a native `Workflow()` run interactively. These runs
-create branches, edit and commit code, push, comment on issues, and open or review pull requests.
-Never launch one implicitly — that is why this skill carries `disable-model-invocation: true`.
+This skill is the only supported way to start a native `Workflow()` run. These runs create branches,
+edit and commit code, push, comment on issues, and open or review pull requests.
+
+Use it whenever the user asks for one of these runs, however they phrase it — "implement issue 5"
+routes here exactly like `/run-workflow implement 5` does. Never start one the user did not ask for.
+
+This skill deliberately does **not** carry `disable-model-invocation`. It once did, which was
+backwards: the workflow entry points themselves stay model-invocable, so the flag gated the
+preflighted path while leaving the unpreflighted one open — it prevented the safe launch, not the
+unsafe one. What actually guards these runs is the two human gates in the procedure below: the
+dirty-tree confirmation (step 4) and the ambiguous-base confirmation (step 5). Those are real
+approval points. Do not remove them, and do not answer them on the user's behalf.
 
 Do not call `Workflow({name: 'skills:...'})` directly for the entry points below. Everything the run
 needs settled before it starts — a validated args object, an explicit repo, a pinned base branch, a
