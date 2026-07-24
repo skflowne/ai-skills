@@ -65,6 +65,7 @@ function parseFrontmatter(content) {
             const next = lines[j];
             if (next.trim() === "") continue;
             if (KEY_LINE.test(next)) break; // next top-level key
+            if (!/^\s/.test(next)) break; // unindented (e.g. a `# comment`)
             multiline = true;
             break;
         }
