@@ -1,0 +1,138 @@
+---
+name: run-workflow
+description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised, and the fast/legacy variants) with preflighted, validated args. Use only when the user explicitly asks to launch one of these workflows.
+disable-model-invocation: true
+---
+
+# Run Workflow
+
+This skill is the only supported way to start a native `Workflow()` run interactively. These runs
+create branches, edit and commit code, push, comment on issues, and open or review pull requests.
+Never launch one implicitly — that is why this skill carries `disable-model-invocation: true`.
+
+Do not call `Workflow({name: 'skills:...'})` directly for the entry points below. Everything the run
+needs settled before it starts — a validated args object, an explicit repo, a pinned base branch, a
+decision about uncommitted work — has no other place to live. A run that starts without it branches
+from whatever happens to be checked out and reviews whatever that happens to contain.
+
+## Arguments
+
+Interpret the arguments following the skill invocation as:
+
+```text
+<mode> <issue-or-pr-number> [--base <branch>] [--repo <path>] [options]
+```
+
+| Mode | Workflow | Args object |
+| --- | --- | --- |
+| `issue-to-pr` | `skills:issue-to-pr` | `{issueNumber, repoSlug, repoPath, baseBranch, allowDirtyTree}` |
+| `implement` | `skills:supervised-implement` | `{issueNumber, repoSlug, repoPath, baseBranch, allowDirtyTree}` |
+| `review` | `skills:review-supervised` | `{prNumber, repoSlug, repoPath, allowDirtyTree, prReporting}` |
+| `fast-implement` | `skills:fast-implement` | `{issueNumber}` |
+| `fast-issue-to-pr` | `skills:fast-issue-to-pr` | `{issueNumber, repoSlug, repoPath}` |
+| `review-full` | `skills:review-fix-loop` | `{prNumber, repoSlug, repoPath}` |
+| `implement-flow` | `skills:implement-issue-flow` | `{issueNumber, repoSlug, repoPath}` |
+
+`issue-to-pr`, `implement`, and `review` are the maintained entry points and the only ones that
+support `baseBranch`/`allowDirtyTree` and worktree isolation. The rest are legacy: they still branch
+in the user's checkout. If a user picks one of those, say so in one line before launching.
+
+Options: `--no-pr-reporting` maps to `prReporting: false` (`review` only).
+
+## Procedure
+
+Run these in order. Steps 4 and 5 are ordered deliberately: a dirty tree is a reason to stop
+entirely, so settle it before spending the user's attention on a branch question.
+
+### 1. Parse the invocation into a validated args object
+
+Require a mode and a number. Ask for whichever is missing rather than guessing.
+
+Accept `5`, `#5`, `issue 5`, `pr 5`, or a GitHub issue/PR URL, and normalize all of them to an
+**integer**. Then hard-validate: the number must be a positive integer before you go further.
+
+`args` must be an **object**, never a string. `Workflow({args: "5"})` parses to the number `5`, so
+`ARGS.issueNumber` is `undefined` and `#undefined` gets interpolated into prompts — where an agent
+improvises instead of failing. Always pass `args: {issueNumber: 5, ...}`.
+
+### 2. Resolve the repo explicitly
+
+Determine `repoPath` (default: the current working directory; verify with
+`git -C <path> rev-parse --git-dir` that it is a git worktree) and `repoSlug` (`gh repo view --json
+nameWithOwner`). Pass both in every args object. Without them, each agent re-resolves the repo from
+cwd's default remote, and implementing in one checkout while reviewing another is the worst possible
+split.
+
+### 3. Check `gh auth status`
+
+If authentication is unavailable, stop and explain. Do not launch — it will fail deep inside a run
+after work has already been done.
+
+### 4. Preflight the working tree — ask, never stash
+
+Run `git -C <repoPath> status --porcelain`. If clean, continue.
+
+If dirty, show what is uncommitted and get explicit confirmation before launching. State plainly
+that the uncommitted work **stays untouched in their checkout and will not be part of the branch** —
+so the PR will not contain changes they may believe are included.
+
+Never stash. Never `checkout`, `reset`, or move HEAD in the user's checkout. If the user approves,
+pass `allowDirtyTree: true`; otherwise stop and let them commit or stash themselves first.
+
+`allowDirtyTree` is an acknowledgement, not a preference — only ever set it because a human said yes
+in this conversation. The workflows hard-refuse a dirty tree without it, which is what keeps the
+guarantee when a run is started by cron, by another agent, or on resume, where nobody was asked.
+
+### 5. Determine the target branch — confirm only when ambiguous
+
+**Skip this entire step for `review` and `review-full`.** A review works from a PR number alone: the
+PR determines its own head branch, base ref, and head repo. There is nothing to resolve and nothing
+to ask, and `baseBranch` is not a meaningful arg for those workflows. Asking would be pure friction.
+
+For implement modes, run `git -C <repoPath> fetch origin`, then decide.
+
+**Do not ask when the answer is clear.** Proceed with no prompt when either holds:
+
+- The user named a target branch in the invocation (`--base <branch>`). Use it as given.
+- The work is independent — it does not build on anything unmerged — and the checkout is on a clean,
+  up-to-date default branch. Target the default branch from `gh repo view --json defaultBranchRef`.
+
+**Confirm only when the intended base is genuinely ambiguous:**
+
+- The issue depends on, or is stacked on, work in an open unmerged PR or another feature branch.
+- The checkout is on a non-default branch, so it is unclear whether the user means to stack on it or
+  start fresh from default.
+- The local default branch is ahead of its remote — the user may believe unpushed work is included.
+  Check with `git -C <repoPath> rev-list --count origin/<default>..<default>`.
+
+When you confirm, **state the base you propose and why**, so the user approves a specific choice
+rather than answering an open question. Ask once; do not re-ask downstream.
+
+Pass the outcome as an explicit `baseBranch`. The workflow creates its worktree from
+`origin/<baseBranch>` — never a local ref — which is what keeps unpushed local commits out of the
+PR's diff.
+
+### 6. Launch and report
+
+Call `Workflow({name: <workflow>, args: <object>})`. Do not pass a `timeout`.
+
+The workflow creates its own git worktree and does all its work there; the user's checkout is left
+untouched. Do not create a worktree yourself, and do not `cd` anywhere before launching.
+
+For the composite `issue-to-pr`, preflight **once** here. The composite forwards the resolved args to
+both children itself.
+
+When the run returns, report: status, run ID, PR URL, test status, review-loop status, the resolved
+base branch, and any failures. On failure, also report the worktree path from the log — the run's
+work is still there, and only there.
+
+## Examples
+
+```text
+/run-workflow issue-to-pr 123
+/run-workflow implement 123 --base release/2.0
+/run-workflow implement 123 --repo /home/me/projects/example
+/run-workflow review 456
+/run-workflow review 456 --no-pr-reporting
+/run-workflow fast-issue-to-pr 123
+```

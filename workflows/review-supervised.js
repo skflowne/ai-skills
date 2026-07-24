@@ -30,6 +30,7 @@
 export const meta = {
   name: 'review-supervised',
   description: 'Loop a tailored yolo-council-review, judge findings, and orchestrate fixes until only nits remain (max 4 rounds)',
+  whenToUse: 'Launch via the run-workflow skill, not directly — it preflights the working tree, which this workflow cannot do for itself. args MUST be an object: { prNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", allowDirtyTree: false, prReporting: true }. Passing a bare string ("5") makes prNumber undefined. There is no baseBranch arg: the PR determines its own head branch.',
   phases: [
     { title: 'Review' },
     { title: 'Judge' },

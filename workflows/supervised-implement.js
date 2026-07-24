@@ -1,6 +1,7 @@
 export const meta = {
   name: 'supervised-implement',
   description: 'Implement a GitHub issue end to end with Supervised Forge (script-driven milestone review gates) and open a PR',
+  whenToUse: 'Launch via the run-workflow skill, not directly — it preflights the working tree and pins the base branch, which this workflow cannot do for itself. args MUST be an object: { issueNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", baseBranch: "main", allowDirtyTree: false }. Passing a bare string ("5") makes issueNumber undefined.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
