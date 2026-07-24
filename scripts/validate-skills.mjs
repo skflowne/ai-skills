@@ -122,9 +122,23 @@ const META_DECLARATION = /export\s+const\s+meta\s*=\s*\{/y;
 // A key at the top level of the object literal: bare, "double" or 'single' quoted.
 const META_KEY = /(?:"([^"\\]*)"|'([^'\\]*)'|([A-Za-z_$][A-Za-z0-9_$]*))\s*:/y;
 
-// Characters after which a `/` starts a regex literal rather than a division.
-// `null` covers the start of the file.
-const REGEX_ALLOWED_AFTER = new Set([null, "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";"]);
+// Keywords after which a `/` starts a regex literal rather than a division.
+const REGEX_ALLOWED_KEYWORDS = new Set([
+    "return", "typeof", "case", "in", "of", "instanceof", "new", "delete",
+    "void", "do", "else", "yield", "await", "throw",
+]);
+
+// Tokens after which a `/` starts a regex literal rather than a division.
+// `null` covers the start of the file; `"keyword"` stands for any member of
+// REGEX_ALLOWED_KEYWORDS. The tokens deliberately absent are the ones that end a
+// value: `"ident"` (identifier or number), `"str"`, `"regex"`, `)` and `]`.
+const REGEX_ALLOWED_AFTER = new Set([
+    null, "keyword", "(", ",", "=", "=>", ":", "[", "!", "&", "|", "?", "{", "}",
+    ";", "+", "-", "*", "%", "<", ">", "^", "~",
+]);
+
+const IDENT_START = /[A-Za-z_$]/;
+const IDENT_PART = /[A-Za-z0-9_$]/;
 
 /** Index of the closing quote of the string starting at `start`, or -1 if unterminated. */
 function findStringEnd(content, start) {
@@ -165,7 +179,8 @@ function findRegexEnd(content, start) {
  *
  * A single scan skips comments, string literals and regex literals, so neither
  * the declaration nor the keys can be faked by a doc comment or a string, and a
- * quote inside a regex (`/don't/`) cannot desync the scan. An unterminated
+ * quote inside a regex (`/don't/`) cannot desync the scan, wherever that regex
+ * appears (`=> /re/`, `return /re/`, ...). An unterminated
  * string/regex is treated as an ordinary character rather than swallowing the
  * rest of the file.
  *
@@ -213,7 +228,7 @@ function extractMetaKeys(content) {
             const end = findStringEnd(content, i);
             if (end !== -1) {
                 i = end;
-                prev = char;
+                prev = "str";
                 continue;
             }
             // Unterminated: not a string literal, fall through as an ordinary character.
@@ -223,7 +238,7 @@ function extractMetaKeys(content) {
             const end = findRegexEnd(content, i);
             if (end !== -1) {
                 i = end;
-                prev = "/";
+                prev = "regex";
                 continue;
             }
         }
@@ -235,9 +250,28 @@ function extractMetaKeys(content) {
                 depth = 1;
                 i = META_DECLARATION.lastIndex - 1; // index of the opening `{`
                 prev = "{";
-            } else {
-                prev = char;
+                continue;
             }
+        }
+
+        // Consume whole identifiers/keywords so `prev` is a token, not a letter:
+        // `return /re/` must be seen as a regex, `x / y` as a division.
+        if (IDENT_START.test(char)) {
+            let end = i + 1;
+            while (end < content.length && IDENT_PART.test(content[end])) end++;
+            prev = REGEX_ALLOWED_KEYWORDS.has(content.slice(i, end)) ? "keyword" : "ident";
+            i = end - 1;
+            continue;
+        }
+
+        if (char === "=" && next === ">") {
+            i++;
+            prev = "=>";
+            continue;
+        }
+
+        if (!inMeta) {
+            prev = char;
             continue;
         }
 
