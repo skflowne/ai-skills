@@ -21,15 +21,17 @@ export const meta = {
 // args: prNumber (required). repoSlug/repoPath (optional) thread explicit repo context into every
 // prompt — without them, agents resolve the PR from cwd's default remote, which is ambiguous
 // across multiple checkouts. prReporting (default true) toggles the persistent PR report comment.
-const PR_NUMBER = args.prNumber
-const REPO_SLUG = args.repoSlug
-const REPO_PATH = args.repoPath
+// Some harnesses hand `args` through as a JSON-encoded string rather than the parsed object.
+const ARGS = typeof args === 'string' ? JSON.parse(args) : args
+const PR_NUMBER = ARGS.prNumber
+const REPO_SLUG = ARGS.repoSlug
+const REPO_PATH = ARGS.repoPath
 const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
   ? `Repo context: ${REPO_PATH ? `local checkout at ${REPO_PATH} (cd there for git operations)` : ''}${REPO_PATH && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh command — do not rely on cwd's default remote)` : ''}.`
   : ''
 
 const MAX_ROUNDS = 4
-const PR_REPORTING = args.prReporting !== false
+const PR_REPORTING = ARGS.prReporting !== false
 const REPORT_MARKER = '<!-- review-lite-workflow-report -->'
 const REPORT_RUN_ID = `review-lite-pr${PR_NUMBER}`
 

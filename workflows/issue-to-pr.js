@@ -1,6 +1,6 @@
 export const meta = {
   name: 'issue-to-pr',
-  description: 'Implement a GitHub issue end to end, then loop council + yolo-council review/fix until only nits remain',
+  description: 'Implement a GitHub issue end to end with Supervised Forge, then loop a tailored yolo-council review/fix until only nits remain',
   phases: [
     { title: 'Implement' },
     { title: 'Review loop' },
@@ -12,7 +12,7 @@ export const meta = {
 // .claude-plugin/marketplace.json) — not the bare `meta.name` from their own
 // files. If that plugin name ever changes, update these two strings to match.
 phase('Implement')
-const implemented = await workflow('skills:implement-issue-flow', { issueNumber: args.issueNumber })
+const implemented = await workflow('skills:supervised-forge-implement', { issueNumber: args.issueNumber })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
 if (!implemented.testsPassed) {
@@ -20,7 +20,7 @@ if (!implemented.testsPassed) {
 }
 
 phase('Review loop')
-const reviewed = await workflow('skills:review-fix-loop', {
+const reviewed = await workflow('skills:review-fix-loop-lite', {
   prNumber: implemented.prNumber,
   repoSlug: args.repoSlug,
   repoPath: args.repoPath,
