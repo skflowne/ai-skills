@@ -70,6 +70,17 @@ const repoContext = (path) => (REPO_SLUG || path)
 // Reassigned once the run's worktree exists; every prompt after setup picks up the new value.
 let REPO_CONTEXT = repoContext(REPO_PATH)
 
+// The diff range the panel reviews, pinned from the repository itself rather than left to each
+// agent. Set once the worktree exists (see setup:diff-range) and read at prompt-build time.
+//
+// Why this is not left to `gh pr diff`: GitHub caches a PR's merge base and does not always
+// recompute it when the base branch advances. When it goes stale, `gh pr diff` returns commits
+// that are already merged into the base as though they were the PR's own work, and the panel
+// spends the review on code nobody proposed. A merge-base computed locally is ground truth, and
+// stays correct whether or not the branch is behind its base.
+let DIFF_CONTEXT = ''
+const diffContext = (mergeBaseSha, headSha) => `Authoritative diff for this PR: the range \`${mergeBaseSha}...${headSha}\`. Read it from the run's worktree — \`git diff ${mergeBaseSha}...${headSha}\` for the change, \`git log ${mergeBaseSha}..${headSha}\` for its commits. Do NOT use \`gh pr diff\` or GitHub's "Files changed" view to decide what this PR changed: GitHub's cached merge base goes stale when the base branch advances, so both can present already-merged base commits as this PR's work. Anything outside that range is not this PR's change — do not review it and do not raise findings against it.`
+
 // gh invocation fragments the report agent must not have to derive. `gh api` takes no --repo flag,
 // so a run whose cwd is not the target checkout has to carry the slug in the path itself.
 const GH_REPO_FLAG = REPO_SLUG ? ` --repo ${REPO_SLUG}` : ''
@@ -144,6 +155,7 @@ const PR_RESOLVE_SCHEMA = {
     found: { type: 'boolean' },
     number: { type: 'number' },
     headRefName: { type: 'string' },
+    baseRefName: { type: 'string' },
     headSha: { type: 'string' },
     state: { type: 'string' },
   },
@@ -560,6 +572,8 @@ function expertPrompt(prNumber, expert) {
 
 ${REPO_CONTEXT}
 
+${DIFF_CONTEXT}
+
 Provide actual evidence for every claim. Do not rely on unlikely hypotheticals. If unsure, search the codebase or fetch relevant docs. Return promptly after covering your assigned focus.
 
 Your expert role: ${expert.role}
@@ -579,7 +593,9 @@ async function runYoloPanel(prNumber, round) {
   } else {
     roster = await agent(`Follow the yolo-council-review skill to compose the tailored expert panel for PR #${prNumber}. Fetch the PR, linked issues, diff, original goal, and acceptance criteria. Choose 2-6 distinct, non-overlapping expert roles according to the skill. Return only the roster; do not spawn reviewers, synthesize findings, post to GitHub, or ask for approval.
 
-${REPO_CONTEXT}`, {
+${REPO_CONTEXT}
+
+${DIFF_CONTEXT}`, {
       phase: 'Review',
       label: `r${round}:yolo:roster`,
       schema: ROSTER_SCHEMA,
@@ -607,6 +623,10 @@ ${REPO_CONTEXT}`, {
   const judged = await agent(`Follow the yolo-council-review skill to synthesize these tailored expert reports for PR #${prNumber}, then judge the result (round ${round}). Critically verify evidence, fetch external documentation when needed, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel already performed the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad review. Also fetch existing PR comments, prior review rounds, and linked follow-up issues; drop a prior finding only when the current remote head proves it fixed or a linked issue explicitly defers it. Do not post to GitHub or ask for approval.
 
 ${REPO_CONTEXT}
+
+${DIFF_CONTEXT}
+
+Drop any finding whose evidence sits outside the diff range above — it belongs to code already merged into the base branch, not to this PR.
 
 ${completedReports.map(({ expert, result }) => `### ${expert.role}\nFocus: ${expert.focus}\n${result}`).join('\n\n')}
 
@@ -954,7 +974,7 @@ log(`Starting lightweight YOLO review-fix loop for PR #${PR_NUMBER}, max ${MAX_R
 // Pin PR #N to its exact head branch before anything else runs — including the first report write,
 // so a mistyped PR number fails fast instead of posting a report comment somewhere. Later
 // git/GitHub agents cross-check against this pin rather than re-resolving with room to guess.
-const resolvedPr = await agent(`Run exactly this command and relay its result: \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,state,headRefName,headRefOid\`. If it succeeds, return found=true plus number, headRefName, headSha (the headRefOid), and state verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered PRs, try other repos or remotes, or substitute a branch.
+const resolvedPr = await agent(`Run exactly this command and relay its result: \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,state,headRefName,baseRefName,headRefOid\`. If it succeeds, return found=true plus number, headRefName, baseRefName, headSha (the headRefOid), and state verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered PRs, try other repos or remotes, or substitute a branch.
 
 ${REPO_CONTEXT}`, {
   label: 'resolve-pr',
@@ -971,8 +991,11 @@ if (resolvedPr.state && resolvedPr.state.toUpperCase() !== 'OPEN') {
   throw new Error(`PR #${PR_NUMBER} is ${resolvedPr.state} — stopping instead of reviewing/pushing to a non-open PR`)
 }
 const PR_BRANCH = resolvedPr.headRefName
+// The PR's own base ref, used only to compute the review's diff range. Never checked out, never
+// pushed to, and deliberately not a workflow arg — the PR already decides what it targets.
+const PR_BASE_BRANCH = resolvedPr.baseRefName || ''
 report.startingSha = resolvedPr.headSha || ''
-log(`Resolved PR #${PR_NUMBER}: head branch ${PR_BRANCH}${resolvedPr.state ? ` (${resolvedPr.state})` : ''} at ${resolvedPr.headSha || 'unknown sha'}`)
+log(`Resolved PR #${PR_NUMBER}: head branch ${PR_BRANCH}${PR_BASE_BRANCH ? ` onto ${PR_BASE_BRANCH}` : ''}${resolvedPr.state ? ` (${resolvedPr.state})` : ''} at ${resolvedPr.headSha || 'unknown sha'}`)
 
 // The fix rounds commit and push, so they get a dedicated worktree rather than the user's
 // checkout. Created from the PR's own head branch — this workflow works from a PR number alone, so
@@ -1044,6 +1067,51 @@ REPO_CONTEXT = repoContext(WORKTREE_PATH)
 log(`Worktree verified: ${WORKTREE_PATH} on ${PR_BRANCH}${worktreeResult.detail ? ` — ${worktreeResult.detail}` : ''}; checkout left on ${worktreeResult.repoBranchBefore || 'its original branch'} at ${worktreeResult.repoHeadBefore || 'its original HEAD'}`)
 if (DIRTY_PATHS.length) {
   log(`Note: ${DIRTY_PATHS.length} uncommitted change(s) in the checkout are left untouched: ${DIRTY_PATHS.join(', ')}`)
+}
+
+// Pin what "this PR changed" to a merge base computed from the repository, before any reviewer
+// runs. Left implicit, agents reach for `gh pr diff`, which trusts GitHub's cached merge base --
+// and a PR whose base branch has advanced since it was opened can have already-merged base commits
+// reported as its own. The panel then reviews code the author never wrote.
+const HEAD_SHA_FOR_DIFF = resolvedPr.headSha || PR_BRANCH
+if (PR_BASE_BRANCH) {
+  const diffRange = await agent(`Determine the exact diff range for PR #${PR_NUMBER} (head branch ${PR_BRANCH}, base branch ${PR_BASE_BRANCH}). Work only in the run's worktree at ${WORKTREE_PATH} — cd there first, and never run git commands that write in any other checkout.
+
+1. \`git fetch origin\` — the base ref must be current or the merge base is wrong.
+2. \`git merge-base origin/${PR_BASE_BRANCH} ${HEAD_SHA_FOR_DIFF}\` — return the full sha as mergeBaseSha. If the base ref is missing locally, fetch it explicitly (\`git fetch origin ${PR_BASE_BRANCH}\`) and retry; if it still fails, return mergeBaseSha as an empty string and explain in detail.
+3. Using that sha as <merge-base>: return the last line of \`git diff --stat <merge-base>...${HEAD_SHA_FOR_DIFF}\` as diffStat, and the output of \`git diff --name-only <merge-base>...${HEAD_SHA_FOR_DIFF}\` as changedFiles.
+
+Report exactly what the commands printed. Do not infer the range from \`gh pr diff\`, the GitHub UI, or the PR's baseRefOid — those are the values this step exists to bypass. Do not edit, commit, or push anything.
+
+${REPO_CONTEXT}`, {
+    label: 'setup:diff-range',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        mergeBaseSha: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        diffStat: { type: 'string' },
+        detail: { type: 'string' },
+      },
+      required: ['mergeBaseSha'],
+    },
+    model: 'haiku',
+    effort: 'low',
+  })
+  const mergeBaseSha = diffRange?.mergeBaseSha?.trim() || ''
+  if (/^[0-9a-f]{7,40}$/.test(mergeBaseSha)) {
+    DIFF_CONTEXT = diffContext(mergeBaseSha, HEAD_SHA_FOR_DIFF)
+    const fileCount = diffRange.changedFiles?.length
+    log(`Review diff pinned to ${mergeBaseSha.slice(0, 12)}...${HEAD_SHA_FOR_DIFF.slice(0, 12)} (merge base with origin/${PR_BASE_BRANCH})${typeof fileCount === 'number' ? `: ${fileCount} file(s) changed` : ''}${diffRange.diffStat ? ` — ${diffRange.diffStat.trim()}` : ''}`)
+  } else {
+    // Not fatal: the reviewers can still compute the range themselves. What must not happen is a
+    // silent fall back to `gh pr diff`, so the instruction to avoid it survives either way.
+    DIFF_CONTEXT = `Authoritative diff for this PR: compute it in the run's worktree with \`git merge-base origin/${PR_BASE_BRANCH} ${HEAD_SHA_FOR_DIFF}\` and review \`git diff <merge-base>...${HEAD_SHA_FOR_DIFF}\`. Do NOT use \`gh pr diff\` or GitHub's "Files changed" view to decide what this PR changed: GitHub's cached merge base goes stale when the base branch advances, so both can present already-merged base commits as this PR's work.`
+    log(`Could not pin the review diff range (merge base with origin/${PR_BASE_BRANCH} unresolved${diffRange?.detail ? `: ${diffRange.detail}` : ''}) — reviewers are instructed to compute it themselves rather than trust \`gh pr diff\``)
+  }
+} else {
+  log(`PR #${PR_NUMBER} reported no base branch — reviewers will fall back to GitHub's view of the diff, which may include already-merged base commits`)
 }
 
 await initializeReport()
