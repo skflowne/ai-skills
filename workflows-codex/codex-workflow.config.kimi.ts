@@ -54,9 +54,11 @@ export default {
     { match: '*:fix:orchestrator', provider: 'orchestrator' },
     { match: '*:fix:checkout', provider: 'judge' },
     { match: '*:fix:group', provider: 'judge' },
-    // Cross-chain conflict resolution — same role the `opus` model alias maps to, mirroring the
-    // script's `model: 'opus'` hint (routes are checked before aliases, so this must match it).
-    { match: '*:fix:integrate', provider: 'design' },
+    // Cross-chain conflict resolution (review-fix-loop-lite's `*:fix:integrate` and
+    // supervised-forge-implement's `milestones:integrate`) — same role the `opus` model alias maps
+    // to, mirroring the scripts' `model: 'opus'` hint (routes are checked before aliases, so this
+    // must match it).
+    { match: '*:integrate', provider: 'design' },
     { match: '*:fix:push', provider: 'judge' },
     { match: '*:fix:verify-remote', provider: 'judge' },
     { match: '*:yolo:supervisor', provider: 'supervisor' },

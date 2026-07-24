@@ -22,6 +22,10 @@
 // - Mechanical agents (checkout, push, remote verification, scouting, report writes) run on cheap
 //   tiers; findings JSON is passed compact, never pretty-printed.
 // - The round's PR review comment posts concurrently with the fix round it announces.
+//
+// PR identity is pinned, never guessed: prNumber is validated strictly, an up-front agent resolves
+// it to its exact head branch (failing the run on any mismatch, before the first report write),
+// and the checkout/push/verification agents cross-check that pin instead of re-resolving.
 
 export const meta = {
   name: 'review-fix-loop-lite',
@@ -37,8 +41,14 @@ export const meta = {
 // prompt — without them, agents resolve the PR from cwd's default remote, which is ambiguous
 // across multiple checkouts. prReporting (default true) toggles the persistent PR report comment.
 // Some harnesses hand `args` through as a JSON-encoded string rather than the parsed object.
-const ARGS = typeof args === 'string' ? JSON.parse(args) : args
-const PR_NUMBER = ARGS.prNumber
+const ARGS = typeof args === 'string'
+  ? (() => { try { return JSON.parse(args) } catch { throw new Error('args arrived as a string that is not valid JSON') } })()
+  : args
+if (ARGS == null || typeof ARGS !== 'object') throw new Error('args must be an object like { prNumber: 123 }')
+// Exact integer, or an all-digits string from a harness that stringifies numbers. Anything else
+// fails here — the workflow never lets an agent guess which PR was meant.
+const PR_NUMBER = typeof ARGS.prNumber === 'string' && /^[0-9]+$/.test(ARGS.prNumber) ? Number(ARGS.prNumber) : ARGS.prNumber
+if (!Number.isInteger(PR_NUMBER) || PR_NUMBER < 1) throw new Error(`prNumber must be a positive integer (got ${JSON.stringify(ARGS.prNumber)})`)
 const REPO_SLUG = ARGS.repoSlug
 const REPO_PATH = ARGS.repoPath
 const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
@@ -59,8 +69,6 @@ const MAX_FIX_ROUNDS_PER_GATE = 2
 const PR_REPORTING = ARGS.prReporting !== false
 const REPORT_MARKER = '<!-- review-lite-workflow-report -->'
 const REPORT_RUN_ID = `review-lite-pr${PR_NUMBER}`
-
-if (!Number.isInteger(PR_NUMBER) || PR_NUMBER < 1) throw new Error('prNumber must be a positive integer')
 
 const FINDING_ITEM_SCHEMA = {
   type: 'object',
@@ -109,6 +117,19 @@ const JUDGE_SCHEMA = {
     findings: { type: 'array', items: FINDING_ITEM_SCHEMA },
   },
   required: ['done', 'findings'],
+}
+
+const PR_RESOLVE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    found: { type: 'boolean' },
+    number: { type: 'number' },
+    headRefName: { type: 'string' },
+    headSha: { type: 'string' },
+    state: { type: 'string' },
+  },
+  required: ['found'],
 }
 
 const CHECKOUT_SCHEMA = {
@@ -451,17 +472,24 @@ Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SC
     effort: 'low',
   })
 
+  // A failed pass has nothing worth publishing — paying a report write to post "unavailable" would
+  // only add noise. The caller's failure counter handles repeated failures.
+  if (result === null) {
+    log(`${phaseName}: scout pass ${tick} returned nothing — skipping the report write`)
+    return false
+  }
+
   // The phase can finish while this pass was in flight — a "yep, it's done" observation only
   // duplicates the completion report that's about to be written, so drop it rather than post it.
   if (isSettled()) {
     log(`${phaseName}: scout pass ${tick} finished after the phase settled — dropping its (now redundant) observation`)
-    return result !== null
+    return true
   }
 
   // The schema no longer caps these (a cap there fails the whole call); enforce the size here.
   const next = {
-    summary: result === null ? 'Scout report unavailable.' : truncate(result.summary, MAX_SUMMARY_CHARS),
-    observations: result === null ? [] : result.observations.slice(0, MAX_SCOUT_OBSERVATIONS).map(observation => truncate(observation, MAX_OBSERVATION_CHARS)),
+    summary: truncate(result.summary, MAX_SUMMARY_CHARS),
+    observations: result.observations.slice(0, MAX_SCOUT_OBSERVATIONS).map(observation => truncate(observation, MAX_OBSERVATION_CHARS)),
   }
 
   // Each report write pays the full rendered body twice (prompt + output). A quiet stretch of a
@@ -469,12 +497,12 @@ Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SC
   const last = report.scoutUpdates[report.scoutUpdates.length - 1]
   if (last && last.phase === phaseName && last.summary === next.summary && JSON.stringify(last.observations) === JSON.stringify(next.observations)) {
     log(`${phaseName}: scout pass ${tick} observed nothing new — skipping the report write`)
-    return result !== null
+    return true
   }
 
   report.scoutUpdates.push({ phase: phaseName, tick, ...next })
   await updateReport(`${phaseName} scout report ${tick}`)
-  return result !== null
+  return true
 }
 
 // Runs scout passes back-to-back while the operation is in flight — each pass is an agent run that
@@ -625,8 +653,12 @@ For each finding, inspect the current remote head${report.finalSha ? ` (expected
   })
 }
 
+// Posting the verdict is reporting, not workflow state — a flaky gh call must never mark the run
+// Failed (least of all after fixes are already pushed and verified), so failures warn here instead
+// of throwing at any call site.
 async function postReview(reviewRound, judged, { final = false } = {}) {
-  const result = await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${reviewRound}'s verified findings, severity-ranked and sectioned by expert area, with complete finder attribution and inline comments where file/line evidence supports them. event: COMMENT.
+  try {
+    const result = await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${reviewRound}'s verified findings, severity-ranked and sectioned by expert area, with complete finder attribution and inline comments where file/line evidence supports them. event: COMMENT.
 
 ${REPO_CONTEXT}
 
@@ -638,16 +670,26 @@ ${final
 
 Findings:
 ${JSON.stringify(judged.findings)}`, { label: `r${reviewRound}:post` })
-  if (result === null) throw new Error(`Round ${reviewRound}: failed to post review`)
-  log(`Round ${reviewRound}: review posted to PR #${PR_NUMBER}`)
+    if (result === null) throw new Error('post agent failed')
+    log(`Round ${reviewRound}: review posted to PR #${PR_NUMBER}`)
+  } catch (error) {
+    log(`[warn] Round ${reviewRound}: review post failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 function actionableFix(findings) {
   return findings.filter(finding => finding.severity !== 'nit')
 }
 
+// The review-gate and serial/parallel milestone helpers below are mirrored (with PR-fix-specific
+// contracts: findings JSON, commit-sha tracking for push verification) in
+// workflows/supervised-forge-implement.js. The sandbox has no imports and workflow() nesting is
+// one level deep — already spent by issue-to-pr — so the shape is duplicated deliberately;
+// propagate structural changes to the twin by hand.
 async function requestFixReview(label, subject, context) {
   const review = await agent(`Act as an independent correctness reviewer verifying a fix for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this fix and have no prior context beyond this message. Inspect the actual commit(s) on the branch yourself — do not trust the implementer's own description of what changed. Confirm the original findings are genuinely resolved and no regression was introduced. Report concrete findings with evidence and exact file references; return no findings if it's clean.
+
+${REPO_CONTEXT}
 
 ${context}`, {
     label: `${label}:review`,
@@ -662,9 +704,11 @@ ${context}`, {
 // A Workflow agent() call can't spawn a further subagent, so a single agent told to "resolve and
 // verify per the supervised-forge skill" can't actually run the skill's persistent-reviewer
 // mechanic. This dispatches a genuinely separate, independent agent() for each review pass instead.
+// Each review pass returns fresh finding objects that can't be identity-matched to the previous
+// pass's, so a per-finding "fixed" count would count anything still open twice. The gate therefore
+// reports fix rounds run + findings still open.
 async function runFixReviewGate(label, subject, context, fixPromptPrefix) {
   let findings = actionableFix(await requestFixReview(label, subject, context))
-  const fixed = []
   const fixCommits = []
   let round = 0
   while (findings.length && round < MAX_FIX_ROUNDS_PER_GATE) {
@@ -683,13 +727,14 @@ Rerun the relevant validation and commit your fixes with a message starting "${l
     })
     if (fix === null) throw new Error(`${label}: fix round ${round} failed`)
     fixCommits.push(fix.commitSha)
-    fixed.push(...findings)
-    findings = actionableFix(await requestFixReview(`${label}:r${round}`, subject, context))
+    findings = actionableFix(await requestFixReview(`${label}:r${round}`, subject, `${context}
+
+Fix round ${round} has since committed fixes for earlier findings on top — review the current state including those fix-up commits, not just any originally-cited commit.`))
   }
   if (findings.length) {
     log(`${subject}: ${findings.length} finding(s) still open after ${round} fix round(s) — proceeding with residual risk`)
   }
-  return { fixed, openFindings: findings, fixCommits }
+  return { fixRounds: round, openFindings: findings, fixCommits }
 }
 
 // Serial milestone: implement and gate directly on the PR branch in the main checkout.
@@ -710,7 +755,7 @@ Run the relevant tests, lint, typecheck, and other validation. Commit your work 
   const commits = [{ sha: impl.commitSha, title: `Fix ${tag}: ${milestone.title}` }]
 
   const gate = await runFixReviewGate(tag,
-    `fix milestone ${tag} ("${milestone.title}") on PR #${PR_NUMBER} branch ${branch}, commit ${impl.commitSha}`,
+    `fix milestone ${tag} ("${milestone.title}") on PR #${PR_NUMBER} branch ${branch}, commit ${impl.commitSha} plus any fix-up commits on top of it`,
     `Original findings this milestone was meant to resolve:
 ${JSON.stringify(milestone.findings)}
 
@@ -718,7 +763,7 @@ Raw validation output from the implementer:
 ${impl.validationOutput}`,
     `On branch ${branch}, resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}).`)
   for (const sha of gate.fixCommits) commits.push({ sha, title: `Fix ${tag} follow-up: ${milestone.title}` })
-  log(`${tag}: fix review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} (${gate.fixed.length} fixed)`)
+  log(`${tag}: fix review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} after ${gate.fixRounds} fix round(s)`)
   return { commits, openFindings: gate.openFindings }
 }
 
@@ -728,7 +773,7 @@ ${impl.validationOutput}`,
 // chain's commits are cherry-picked onto the PR branch by the integration agent afterwards.
 async function runParallelMilestone(branch, baseSha, tag, milestone) {
   const chainBranch = `rfl/pr${PR_NUMBER}/${tag}`
-  const impl = await agent(`Resolve review milestone "${milestone.title}" for PR #${PR_NUMBER}. Other milestones are being fixed in parallel, so do not touch branch ${branch} or the main checkout's working tree: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`).
+  const impl = await agent(`Resolve review milestone "${milestone.title}" for PR #${PR_NUMBER}. Other milestones are being fixed in parallel, so do not touch branch ${branch} or the main checkout's working tree: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if that fails because a stale worktree still has it checked out, find it with \`git worktree list\`, \`git worktree remove --force\` it, then delete the branch). If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
 
 ${REPO_CONTEXT}
 
@@ -751,8 +796,8 @@ ${JSON.stringify(milestone.findings)}
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
-    `Resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}) on temp branch ${chainBranch}. Other milestones are being fixed in parallel, so do not touch the main checkout's working tree: run \`git worktree add <fresh temp dir> ${chainBranch}\`, do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`)
-  return { tag, milestone, chainBranch, openFindings: gate.openFindings, fixedCount: gate.fixed.length }
+    `Resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}) on temp branch ${chainBranch}. Other milestones are being fixed in parallel, so do not touch the main checkout's working tree: run \`git worktree add <fresh temp dir> ${chainBranch}\` (if that fails because ${chainBranch} is checked out in a stale worktree from an earlier failed attempt, \`git worktree list\` and \`git worktree remove --force\` the stale one first; on a git lock error, another parallel agent is mid-operation — wait a moment and retry), do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`)
+  return { tag, milestone, chainBranch, openFindings: gate.openFindings, fixRounds: gate.fixRounds }
 }
 
 async function runFix(round, findings) {
@@ -760,7 +805,7 @@ async function runFix(round, findings) {
     phase('Fix')
 
     // One mechanical agent establishes both the local checkout and the verified remote head.
-    const checkout = await agent(`Check out PR #${PR_NUMBER}'s branch locally: fetch first, check the branch out, and confirm the local HEAD equals the PR's current remote head on GitHub (e.g. \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json headRefOid\`); if they differ, hard-reset the local branch to the remote head. Do not edit or commit anything. Return the branch name and the remote head sha as reported by GitHub — never a local-only sha.
+    const checkout = await agent(`Check out PR #${PR_NUMBER}'s branch locally. Its head branch was already resolved as ${PR_BRANCH}: run \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,headRefName,headRefOid\` yourself, and if it fails or reports a different number or branch, return exactly what it reported and stop — never fall back to another PR or branch. Otherwise fetch, check out ${PR_BRANCH}, and confirm the local HEAD equals the PR's current remote head; if they differ, hard-reset the local branch to the remote head. Do not edit or commit anything. Return the branch name exactly as headRefName reports it and the remote head sha as reported by GitHub — never a local-only sha.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:checkout`,
@@ -770,6 +815,7 @@ ${REPO_CONTEXT}`, {
       effort: 'low',
     })
     if (checkout === null || !checkout.branch || !checkout.headSha) throw new Error(`Round ${round}: could not check out PR #${PR_NUMBER}'s branch at a verified remote head; refusing to dispatch fixes`)
+    if (checkout.branch !== PR_BRANCH) throw new Error(`Round ${round}: checkout reported branch "${checkout.branch}" but PR #${PR_NUMBER} is pinned to ${PR_BRANCH} — refusing to dispatch fixes`)
     const branch = checkout.branch
     const baseSha = checkout.headSha
     if (!report.startingSha) report.startingSha = baseSha
@@ -805,7 +851,7 @@ ${JSON.stringify(findings)}`, {
       if (chains.some(chain => chain === null)) throw new Error(`Round ${round}: a parallel fix milestone failed`)
       for (const chain of chains) {
         stillOpen.push(...chain.openFindings)
-        log(`${chain.tag}: fix review gate ${chain.openFindings.length ? `left ${chain.openFindings.length} open finding(s)` : 'clean'} (${chain.fixedCount} fixed)`)
+        log(`${chain.tag}: fix review gate ${chain.openFindings.length ? `left ${chain.openFindings.length} open finding(s)` : 'clean'} after ${chain.fixRounds} fix round(s)`)
       }
 
       const integrated = await agent(`On branch ${branch} (PR #${PR_NUMBER}) in the main checkout, integrate these parallel fix chains by cherry-picking each chain's range onto ${branch}, in the order listed:
@@ -816,7 +862,7 @@ ${REPO_CONTEXT}
 The chains were all built from ${baseSha} against concerns judged disjoint, so conflicts should be rare; resolve any that appear in the spirit of the original findings rather than aborting:
 ${JSON.stringify(findings)}
 
-After integrating, run the project's full validation (tests, lint, typecheck as applicable) on ${branch}. Do not push. Delete the temp chain branches (git branch -D) once integrated. Return success=false if validation fails or integration proves impossible; otherwise success=true plus every commit (sha and title) now in ${baseSha}..HEAD, oldest first — cherry-picking rewrites shas, so report the shas actually on ${branch}.`, {
+After integrating, run the project's full validation (tests, lint, typecheck as applicable) on ${branch}. Do not push. Delete the temp chain branches (git branch -D) only after validation passes — they are the only copy of each chain's work until then. If a cherry-pick proves impossible or validation fails, leave the chain branches in place and restore the branch before returning (\`git cherry-pick --abort\` if one is in progress, then \`git reset --hard ${baseSha}\`), and return success=false with the reason. On success return success=true plus every commit (sha and title) now in ${baseSha}..HEAD, oldest first — cherry-picking rewrites shas, so report the shas actually on ${branch}.`, {
         label: `r${round}:fix:integrate`,
         schema: INTEGRATE_SCHEMA,
         agentType: 'general-purpose',
@@ -839,7 +885,7 @@ After integrating, run the project's full validation (tests, lint, typecheck as 
       log(`Round ${round}: ${stillOpen.length} finding(s) still open after all fix milestones — pushing regardless; they'll resurface in the next review round`)
     }
 
-    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${baseSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
+    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. If gh reports PR #${PR_NUMBER} missing or its head branch as anything other than ${branch}, return success=false without pushing anywhere else. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${baseSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:push`,
@@ -851,9 +897,9 @@ ${REPO_CONTEXT}`, {
       throw new Error(`Round ${round}: push did not verify a changed remote head: ${pushResult ? pushResult.summary : 'push agent failed'}`)
     }
 
-    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${baseSha}, belongs to PR #${PR_NUMBER}, and that these commits exactly describe the pushed range:
+    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${baseSha}, belongs to PR #${PR_NUMBER} on head branch ${branch}, and that these commits exactly describe the pushed range:
 ${JSON.stringify(commits)}
-Return verified=false on any mismatch.
+Return verified=false on any mismatch or if PR #${PR_NUMBER} cannot be fetched — never verify against a different PR or branch.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:verify-remote`,
@@ -882,8 +928,32 @@ async function initializeReport() {
   await updateReport('workflow started')
 }
 
-await initializeReport()
 log(`Starting lightweight YOLO review-fix loop for PR #${PR_NUMBER}, max ${MAX_ROUNDS} fix round(s), PR reporting ${PR_REPORTING ? 'enabled' : 'disabled'}`)
+
+// Pin PR #N to its exact head branch before anything else runs — including the first report write,
+// so a mistyped PR number fails fast instead of posting a report comment somewhere. Later
+// git/GitHub agents cross-check against this pin rather than re-resolving with room to guess.
+const resolvedPr = await agent(`Run exactly this command and relay its result: \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,state,headRefName,headRefOid\`. If it succeeds, return found=true plus number, headRefName, headSha (the headRefOid), and state verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered PRs, try other repos or remotes, or substitute a branch.
+
+${REPO_CONTEXT}`, {
+  label: 'resolve-pr',
+  schema: PR_RESOLVE_SCHEMA,
+  model: 'haiku',
+  effort: 'low',
+})
+if (resolvedPr === null || resolvedPr.found !== true || resolvedPr.number !== PR_NUMBER || !resolvedPr.headRefName) {
+  throw new Error(`PR #${PR_NUMBER} did not resolve to an exact match${REPO_SLUG ? ` in ${REPO_SLUG}` : ''} — stopping instead of guessing`)
+}
+// The loop pushes fix commits to the PR's head branch, so anything but an open PR is a wrong
+// target no matter how exact the number match is.
+if (resolvedPr.state && resolvedPr.state.toUpperCase() !== 'OPEN') {
+  throw new Error(`PR #${PR_NUMBER} is ${resolvedPr.state} — stopping instead of reviewing/pushing to a non-open PR`)
+}
+const PR_BRANCH = resolvedPr.headRefName
+report.startingSha = resolvedPr.headSha || ''
+log(`Resolved PR #${PR_NUMBER}: head branch ${PR_BRANCH}${resolvedPr.state ? ` (${resolvedPr.state})` : ''} at ${resolvedPr.headSha || 'unknown sha'}`)
+
+await initializeReport()
 
 let round = 0
 let verdict = { done: false, findings: [] }
@@ -897,11 +967,8 @@ try {
       break
     }
     // Posting the round's review to GitHub gates nothing the fixes depend on, so it runs
-    // alongside the fix round. Concurrent with fixes it is reporting, not state — a posting
-    // failure logs a warning instead of killing in-flight fix work.
-    const postPromise = postReview(round, verdict).catch(error => {
-      log(`[warn] Round ${round}: review post failed: ${error instanceof Error ? error.message : String(error)}`)
-    })
+    // alongside the fix round (postReview itself downgrades failures to warnings).
+    const postPromise = postReview(round, verdict)
     await runFix(round, verdict.findings)
     await postPromise
   }
