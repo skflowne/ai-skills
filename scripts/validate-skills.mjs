@@ -23,16 +23,58 @@ function addProblem(filePath, message) {
     });
 }
 
-function stripQuotes(value) {
-    const trimmed = value.trim();
-    if (trimmed.length >= 2) {
-        const first = trimmed[0];
-        const last = trimmed[trimmed.length - 1];
-        if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-            return trimmed.slice(1, -1);
+/**
+ * Index of the closing quote of the quoted YAML scalar starting at index 0 of
+ * `text`, or -1 when the scalar is not closed on that line. Handles `\"` inside
+ * a double-quoted scalar and the `''` escape inside a single-quoted one.
+ */
+function findScalarQuoteEnd(text) {
+    const quote = text[0];
+    for (let i = 1; i < text.length; i++) {
+        if (quote === '"' && text[i] === "\\") {
+            i++;
+            continue;
+        }
+        if (text[i] === quote) {
+            if (quote === "'" && text[i + 1] === "'") {
+                i++;
+                continue;
+            }
+            return i;
         }
     }
-    return trimmed;
+    return -1;
+}
+
+/** True when the raw value opens a quoted scalar that is not closed on the same line. */
+function hasUnterminatedQuote(rawValue) {
+    const trimmed = rawValue.trim();
+    const quote = trimmed[0];
+    if (quote !== '"' && quote !== "'") return false;
+    return findScalarQuoteEnd(trimmed) === -1;
+}
+
+/** Drop a YAML end-of-line comment (` #...`, or a leading `#`) from a plain scalar. */
+function stripComment(text) {
+    const match = /(?:^|\s)#/.exec(text);
+    return match ? text.slice(0, match.index) : text;
+}
+
+/**
+ * Normalise a raw frontmatter value: unwrap a quoted scalar (dropping anything
+ * after its closing quote, e.g. a trailing ` # comment`) or, for a plain scalar,
+ * strip the end-of-line comment.
+ */
+function stripQuotes(value) {
+    const trimmed = value.trim();
+    const quote = trimmed[0];
+    if (quote === '"' || quote === "'") {
+        const end = findScalarQuoteEnd(trimmed);
+        if (end === -1) return trimmed; // unterminated: report the raw text
+        const inner = trimmed.slice(1, end);
+        return quote === '"' ? inner.replace(/\\(.)/g, "$1") : inner.replace(/''/g, "'");
+    }
+    return stripComment(trimmed).trim();
 }
 
 /**
@@ -60,12 +102,14 @@ function parseFrontmatter(content) {
         const key = match[1];
         const rawValue = match[2];
 
-        // A block scalar always continues onto following lines.
-        let multiline = /^[|>]/.test(rawValue.trim());
+        // A block scalar always continues onto following lines, and so does a
+        // quoted flow scalar whose closing quote is on a later line (which YAML
+        // folds into a single value, however the continuation is indented).
+        let multiline = /^[|>]/.test(rawValue.trim()) || hasUnterminatedQuote(rawValue);
 
         // Otherwise look ahead: any indented, non-empty line before the next
         // top-level `key:` (or the closing `---`) is a value continuation.
-        for (let j = i + 1; j < end; j++) {
+        for (let j = i + 1; !multiline && j < end; j++) {
             const next = lines[j];
             if (next.trim() === "") continue;
             if (KEY_LINE.test(next)) break; // next top-level key
@@ -111,10 +155,13 @@ function validateSkill(dirName) {
     }
 
     const description = frontmatter.get("description");
-    if (!description || description.value === "") {
-        addProblem(skillPath, "frontmatter `description` is missing or empty");
-    } else if (description.multiline) {
+    // The multiline check comes first: a value written on the line(s) after its
+    // key parses as an empty inline value, and "must be a single line" is the
+    // accurate diagnostic for it.
+    if (description && description.multiline) {
         addProblem(skillPath, "frontmatter `description` must be a single line");
+    } else if (!description || description.value === "") {
+        addProblem(skillPath, "frontmatter `description` is missing or empty");
     }
 }
 
@@ -140,15 +187,107 @@ const REGEX_ALLOWED_AFTER = new Set([
 const IDENT_START = /[A-Za-z_$]/;
 const IDENT_PART = /[A-Za-z0-9_$]/;
 
-/** Index of the closing quote of the string starting at `start`, or -1 if unterminated. */
+/**
+ * Index of the closing quote of the string starting at `start`, or -1 if
+ * unterminated. Template literals are scanned interpolation-aware, so a
+ * template nested inside a `${ ... }` (and any quote or brace in that
+ * expression) cannot close the outer template early.
+ */
 function findStringEnd(content, start) {
     const quote = content[start];
+    if (quote === "`") return findTemplateEnd(content, start);
     for (let i = start + 1; i < content.length; i++) {
         if (content[i] === "\\") {
             i++;
             continue;
         }
         if (content[i] === quote) return i;
+    }
+    return -1;
+}
+
+/** Index of the backtick closing the template literal starting at `start`, or -1. */
+function findTemplateEnd(content, start) {
+    for (let i = start + 1; i < content.length; i++) {
+        const char = content[i];
+        if (char === "\\") {
+            i++;
+            continue;
+        }
+        if (char === "`") return i;
+        if (char === "$" && content[i + 1] === "{") {
+            const end = findInterpolationEnd(content, i + 1);
+            if (end === -1) return -1;
+            i = end;
+        }
+    }
+    return -1;
+}
+
+/**
+ * Index of the `}` closing the interpolation whose `{` is at `start`, or -1.
+ * Runs the same token-level skipping as `extractMetaKeys` (comments, strings,
+ * nested templates, regex literals) so only real braces move the depth.
+ */
+function findInterpolationEnd(content, start) {
+    let depth = 0;
+    let prev = null; // start of an expression: a `/` here is a regex
+
+    for (let i = start; i < content.length; i++) {
+        const char = content[i];
+        const next = content[i + 1];
+
+        if (char === "/" && next === "/") {
+            const newline = content.indexOf("\n", i);
+            if (newline === -1) return -1;
+            i = newline;
+            continue;
+        }
+        if (char === "/" && next === "*") {
+            const end = content.indexOf("*/", i + 2);
+            if (end === -1) return -1;
+            i = end + 1;
+            continue;
+        }
+        if (/\s/.test(char)) continue;
+
+        if (char === '"' || char === "'" || char === "`") {
+            const end = findStringEnd(content, i);
+            if (end === -1) return -1; // unterminated: bail out rather than desync
+            i = end;
+            prev = "str";
+            continue;
+        }
+
+        if (char === "/" && REGEX_ALLOWED_AFTER.has(prev)) {
+            const end = findRegexEnd(content, i);
+            if (end !== -1) {
+                i = end;
+                prev = "regex";
+                continue;
+            }
+        }
+
+        if (IDENT_START.test(char)) {
+            let end = i + 1;
+            while (end < content.length && IDENT_PART.test(content[end])) end++;
+            prev = REGEX_ALLOWED_KEYWORDS.has(content.slice(i, end)) ? "keyword" : "ident";
+            i = end - 1;
+            continue;
+        }
+
+        if (char === "=" && next === ">") {
+            i++;
+            prev = "=>";
+            continue;
+        }
+
+        if (char === "{") depth++;
+        else if (char === "}") {
+            depth--;
+            if (depth === 0) return i;
+        }
+        prev = char;
     }
     return -1;
 }
