@@ -114,21 +114,25 @@ function validateSkill(dirName) {
     }
 }
 
-const META_DECLARATION = /export\s+const\s+meta\s*=\s*\{/;
+const META_DECLARATION = /export\s+const\s+meta\s*=\s*\{/y;
+// A key at the top level of the object literal: bare, "double" or 'single' quoted.
+const META_KEY = /(?:"([^"\\]*)"|'([^'\\]*)'|([A-Za-z_$][A-Za-z0-9_$]*))\s*:/y;
 
 /**
- * Return the source of the `export const meta = { ... }` object literal
- * (braces included), or null when there is no such declaration.
- * Scans with a depth counter that skips comments and string literals so that
- * nested objects/arrays (e.g. `phases: [ { title: ... } ]`) are handled.
+ * Return the set of top-level keys of the `export const meta = { ... }` object
+ * literal, or null when there is no such (terminated) declaration.
+ *
+ * A single scan skips comments and string literals, so neither the declaration
+ * nor the keys can be faked by a doc comment or a string. Keys are only
+ * recorded at depth 1, so nested objects/arrays (e.g. `phases: [ { name } ]`)
+ * do not satisfy a top-level key requirement.
  */
-function extractMetaBlock(content) {
-    const match = META_DECLARATION.exec(content);
-    if (!match) return null;
-
-    const start = match.index + match[0].length - 1; // index of the opening `{`
+function extractMetaKeys(content) {
+    const keys = new Set();
+    let inMeta = false;
     let depth = 0;
-    for (let i = start; i < content.length; i++) {
+
+    for (let i = 0; i < content.length; i++) {
         const char = content[i];
         const next = content[i + 1];
 
@@ -144,17 +148,36 @@ function extractMetaBlock(content) {
             i = end + 1;
             continue;
         }
+
+        if (inMeta && depth === 1) {
+            META_KEY.lastIndex = i;
+            const keyMatch = META_KEY.exec(content);
+            if (keyMatch) {
+                keys.add(keyMatch[1] ?? keyMatch[2] ?? keyMatch[3]);
+                i = META_KEY.lastIndex - 1; // resume on the `:`
+                continue;
+            }
+        }
+
         if (char === '"' || char === "'" || char === "`") {
-            for (let j = i + 1; j < content.length; j++) {
+            let j = i + 1;
+            for (; j < content.length; j++) {
                 if (content[j] === "\\") {
                     j++;
                     continue;
                 }
-                if (content[j] === char) {
-                    i = j;
-                    break;
-                }
-                if (j === content.length - 1) i = j;
+                if (content[j] === char) break;
+            }
+            i = Math.min(j, content.length - 1);
+            continue;
+        }
+
+        if (!inMeta) {
+            META_DECLARATION.lastIndex = i;
+            if (META_DECLARATION.exec(content)) {
+                inMeta = true;
+                depth = 1;
+                i = META_DECLARATION.lastIndex - 1; // index of the opening `{`
             }
             continue;
         }
@@ -162,10 +185,10 @@ function extractMetaBlock(content) {
         if (char === "{" || char === "[") depth++;
         else if (char === "}" || char === "]") {
             depth--;
-            if (depth === 0) return content.slice(start, i + 1);
+            if (depth === 0) return keys;
         }
     }
-    return null; // unterminated
+    return null; // missing or unterminated
 }
 
 function validateWorkflow(filePath) {
@@ -177,14 +200,14 @@ function validateWorkflow(filePath) {
         return;
     }
 
-    const metaBlock = extractMetaBlock(content);
-    if (metaBlock === null) {
-        addProblem(filePath, "missing `export const meta = {` declaration");
+    const metaKeys = extractMetaKeys(content);
+    if (metaKeys === null) {
+        addProblem(filePath, "missing or unterminated `export const meta = {` declaration");
         return;
     }
 
     for (const key of ["name", "description"]) {
-        if (!new RegExp(`[{,\\s]${key}\\s*:`).test(metaBlock)) {
+        if (!metaKeys.has(key)) {
             addProblem(filePath, `meta object is missing \`${key}:\``);
         }
     }
