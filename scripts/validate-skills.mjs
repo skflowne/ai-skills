@@ -118,19 +118,63 @@ const META_DECLARATION = /export\s+const\s+meta\s*=\s*\{/y;
 // A key at the top level of the object literal: bare, "double" or 'single' quoted.
 const META_KEY = /(?:"([^"\\]*)"|'([^'\\]*)'|([A-Za-z_$][A-Za-z0-9_$]*))\s*:/y;
 
+// Characters after which a `/` starts a regex literal rather than a division.
+// `null` covers the start of the file.
+const REGEX_ALLOWED_AFTER = new Set([null, "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";"]);
+
+/** Index of the closing quote of the string starting at `start`, or -1 if unterminated. */
+function findStringEnd(content, start) {
+    const quote = content[start];
+    for (let i = start + 1; i < content.length; i++) {
+        if (content[i] === "\\") {
+            i++;
+            continue;
+        }
+        if (content[i] === quote) return i;
+    }
+    return -1;
+}
+
+/** Index of the closing `/` of the regex literal starting at `start`, or -1 if there is none. */
+function findRegexEnd(content, start) {
+    let inClass = false;
+    for (let i = start + 1; i < content.length; i++) {
+        const char = content[i];
+        if (char === "\\") {
+            i++;
+            continue;
+        }
+        if (char === "\n") return -1; // regex literals cannot span lines
+        if (inClass) {
+            if (char === "]") inClass = false;
+            continue;
+        }
+        if (char === "[") inClass = true;
+        else if (char === "/") return i;
+    }
+    return -1;
+}
+
 /**
  * Return the set of top-level keys of the `export const meta = { ... }` object
  * literal, or null when there is no such (terminated) declaration.
  *
- * A single scan skips comments and string literals, so neither the declaration
- * nor the keys can be faked by a doc comment or a string. Keys are only
- * recorded at depth 1, so nested objects/arrays (e.g. `phases: [ { name } ]`)
- * do not satisfy a top-level key requirement.
+ * A single scan skips comments, string literals and regex literals, so neither
+ * the declaration nor the keys can be faked by a doc comment or a string, and a
+ * quote inside a regex (`/don't/`) cannot desync the scan. An unterminated
+ * string/regex is treated as an ordinary character rather than swallowing the
+ * rest of the file.
+ *
+ * Keys are only recorded at depth 1 and only where a key may actually appear
+ * (right after the opening `{` or a `,`), so nested objects/arrays
+ * (e.g. `phases: [ { name } ]`) and value expressions (e.g. the `name :` of a
+ * ternary) do not satisfy a top-level key requirement.
  */
 function extractMetaKeys(content) {
     const keys = new Set();
     let inMeta = false;
     let depth = 0;
+    let prev = null; // last significant character (comments and whitespace ignored)
 
     for (let i = 0; i < content.length; i++) {
         const char = content[i];
@@ -148,28 +192,36 @@ function extractMetaKeys(content) {
             i = end + 1;
             continue;
         }
+        if (/\s/.test(char)) continue;
 
-        if (inMeta && depth === 1) {
+        if (inMeta && depth === 1 && (prev === "{" || prev === ",")) {
             META_KEY.lastIndex = i;
             const keyMatch = META_KEY.exec(content);
             if (keyMatch) {
                 keys.add(keyMatch[1] ?? keyMatch[2] ?? keyMatch[3]);
                 i = META_KEY.lastIndex - 1; // resume on the `:`
+                prev = ":";
                 continue;
             }
         }
 
         if (char === '"' || char === "'" || char === "`") {
-            let j = i + 1;
-            for (; j < content.length; j++) {
-                if (content[j] === "\\") {
-                    j++;
-                    continue;
-                }
-                if (content[j] === char) break;
+            const end = findStringEnd(content, i);
+            if (end !== -1) {
+                i = end;
+                prev = char;
+                continue;
             }
-            i = Math.min(j, content.length - 1);
-            continue;
+            // Unterminated: not a string literal, fall through as an ordinary character.
+        }
+
+        if (char === "/" && REGEX_ALLOWED_AFTER.has(prev)) {
+            const end = findRegexEnd(content, i);
+            if (end !== -1) {
+                i = end;
+                prev = "/";
+                continue;
+            }
         }
 
         if (!inMeta) {
@@ -178,6 +230,9 @@ function extractMetaKeys(content) {
                 inMeta = true;
                 depth = 1;
                 i = META_DECLARATION.lastIndex - 1; // index of the opening `{`
+                prev = "{";
+            } else {
+                prev = char;
             }
             continue;
         }
@@ -187,6 +242,7 @@ function extractMetaKeys(content) {
             depth--;
             if (depth === 0) return keys;
         }
+        prev = char;
     }
     return null; // missing or unterminated
 }
