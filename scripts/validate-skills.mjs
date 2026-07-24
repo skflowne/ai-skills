@@ -82,7 +82,14 @@ function validateSkill(dirName) {
         return;
     }
 
-    const content = readFileSync(skillPath, "utf8");
+    let content;
+    try {
+        content = readFileSync(skillPath, "utf8");
+    } catch (error) {
+        addProblem(skillPath, `could not be read: ${error.message}`);
+        return;
+    }
+
     const frontmatter = parseFrontmatter(content);
     if (frontmatter === null) {
         addProblem(skillPath, "missing or unterminated `---` YAML frontmatter block");
