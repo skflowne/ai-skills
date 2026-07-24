@@ -200,6 +200,8 @@ Rewrite the body as a concise status report built from the workflow state below:
 Workflow state:
 ${JSON.stringify({ ...report, scoutUpdates: report.scoutUpdates.slice(-6) }, null, 2)}
 
+Write the rendered body to a scratch file, then post it with a command that reads the body from that file — never pass "@path" as a literal --body string, since gh does not expand it and will post the literal "@path" text as the comment. To create the comment, use \`gh pr comment ${PR_NUMBER} --body-file <path>\`. To edit the existing comment by id, use \`gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -f body=@<path>\` (the api subcommand's -f/-F flags are what support the @path idiom — gh pr comment's --body does not). After posting, re-fetch the comment and confirm its body starts with the marker line, not a literal file path.
+
 Return updated=true with the comment id on success, updated=false otherwise.`, {
       label: 'report:update',
       schema: REPORT_UPDATE_SCHEMA,
@@ -224,7 +226,7 @@ function updateReport(reason) {
   return reportQueue
 }
 
-async function runScoutPass(phaseName, tick) {
+async function runScoutPass(phaseName, tick, isSettled) {
   const result = await agent(`Act as a read-only progress scout for review-lite PR #${PR_NUMBER}. This is progress report ${tick} during ${phaseName}.
 
 ${REPO_CONTEXT}
@@ -242,6 +244,13 @@ Return a compact summary and up to 8 observations.`, {
     label: `${phaseName}:scout:${tick}`,
     schema: SCOUT_SCHEMA,
   })
+
+  // The phase can finish while this pass was in flight — a "yep, it's done" observation only
+  // duplicates the completion report that's about to be written, so drop it rather than post it.
+  if (isSettled()) {
+    log(`${phaseName}: scout pass ${tick} finished after the phase settled — dropping its (now redundant) observation`)
+    return result !== null
+  }
 
   report.scoutUpdates.push({
     phase: phaseName,
@@ -266,7 +275,7 @@ async function withPhaseScout(phaseName, operation) {
     let tick = 1
     while (!settled && reportingAvailable && scoutFailures < 3 && tick <= 20) {
       try {
-        scoutFailures = (await runScoutPass(phaseName, tick)) ? 0 : scoutFailures + 1
+        scoutFailures = (await runScoutPass(phaseName, tick, () => settled)) ? 0 : scoutFailures + 1
       } catch (error) {
         scoutFailures++
         log(`[warn] ${phaseName} scout report ${tick} failed: ${error instanceof Error ? error.message : String(error)}`)
