@@ -64,6 +64,10 @@ const ISSUE_RESOLVE_SCHEMA = {
   required: ['found'],
 }
 
+// One setup agent, one schema. The first group is what the run needs from setup; the second is the
+// evidence the script checks to confirm a worktree really was created and the checkout left alone.
+// Nothing is required, so an agent told to stop on a dirty tree can report that instead of failing
+// schema validation and retrying the abort. The script checks the fields it needs after the call.
 const BRANCH_SCHEMA = {
   type: 'object',
   properties: {
@@ -71,14 +75,15 @@ const BRANCH_SCHEMA = {
     branch: { type: 'string' },
     baseBranch: { type: 'string' },
     headSha: { type: 'string' },
-    // Set when the user's checkout had uncommitted changes. Without allowDirtyTree the setup agent
-    // stops here and the script throws; with it, the paths are logged as excluded from the branch.
-    dirty: { type: 'boolean' },
+    // Evidence.
+    repoRoot: { type: 'string' },
+    repoBranchBefore: { type: 'string' },
+    repoHeadBefore: { type: 'string' },
+    repoHeadAfter: { type: 'string' },
+    worktreePaths: { type: 'array', items: { type: 'string' } },
+    worktreeBranch: { type: 'string' },
     dirtyPaths: { type: 'array', items: { type: 'string' } },
   },
-  // Nothing is required: the dirty-tree abort path legitimately returns only dirty/dirtyPaths and
-  // no branch. Requiring `branch` would fail schema validation and make the agent retry an abort
-  // it was told to perform. The script checks for the fields it needs immediately after the call.
   required: [],
 }
 
@@ -224,39 +229,66 @@ if (resolvedIssue.state && resolvedIssue.state.toUpperCase() !== 'OPEN') {
 const ISSUE_PIN = `issue #${ISSUE_NUMBER} ("${resolvedIssue.title}")`
 log(`Pinned ${ISSUE_PIN}: ${resolvedIssue.url || 'no url reported'} (${resolvedIssue.state})`)
 
-// The run never touches the user's checkout: it creates a dedicated worktree and works there. The
-// checkout is only the source `git worktree add` is invoked from, and its HEAD must not move.
-// A dirty tree is refused rather than stashed — stashing mutates state the user did not offer.
-const branchResult = await agent(`Set up an isolated worktree to implement ${ISSUE_PIN}.
+// One agent does the setup: it needs judgment (inspect state, pick the base, clear stale
+// worktrees). What it does NOT get is the final word on whether it complied — it reports the raw
+// facts below and the script enforces them, so a run that quietly checked out in the user's
+// checkout instead of creating a worktree fails here rather than proceeding and looking normal.
+const branchResult = await agent(`Set up an isolated worktree to implement ${ISSUE_PIN}. The user's own checkout must be left exactly as you found it: never run \`git checkout\`, \`git switch\`, \`git reset\`, or \`git stash\` in it.
 
-1. Check for uncommitted changes with \`git status --porcelain\`. ${ALLOW_DIRTY_TREE
-  ? 'The caller has acknowledged a dirty tree, so proceed — but do NOT stash, commit, revert, or otherwise touch those changes; leave them exactly as they are. Report them in dirtyPaths.'
-  : 'If there are ANY, stop immediately and return dirty=true with the offending paths in dirtyPaths. Do not stash, commit, or discard them, and do not continue.'}
-2. Run \`git fetch origin\`.
-3. Resolve the base branch: ${BASE_BRANCH
+1. Record the starting state of the checkout and return it: \`git rev-parse --show-toplevel\` as repoRoot, \`git rev-parse --abbrev-ref HEAD\` as repoBranchBefore, \`git rev-parse HEAD\` as repoHeadBefore, and each path from \`git status --porcelain\` in dirtyPaths (empty array when clean).
+2. ${ALLOW_DIRTY_TREE
+  ? 'The caller has acknowledged that the tree may be dirty, so continue — but leave those changes exactly as they are.'
+  : 'If dirtyPaths is not empty, STOP NOW: return what you have and create nothing. Do not stash, commit, or discard anything.'}
+3. Run \`git fetch origin\`.
+4. Resolve the base branch: ${BASE_BRANCH
   ? `use \`${BASE_BRANCH}\` — it was resolved and confirmed by the caller.`
-  : 'determine the repository\'s default branch from `gh repo view --json defaultBranchRef`. Do NOT use the currently checked-out branch.'} Base the new branch on the REMOTE ref \`origin/<base>\`, never the local ref — a local branch may hold unpushed commits, which would pull unrelated work into the PR diff.
-4. Pick a branch name like issue-${ISSUE_NUMBER}-<slug>. If it already exists from an aborted run, delete it first (\`git branch -D\`; if a stale worktree still holds it, \`git worktree list\` then \`git worktree remove --force\` before deleting).
-5. Create the worktree in a fresh temp directory OUTSIDE the repository: \`git worktree add <temp dir> -b <branch> origin/<base>\`.
-
-Do not run \`git checkout\`/\`git switch\` in the user's checkout at any point — its HEAD must be exactly where it started when you are done. Return the worktree path, the branch name, the resolved base branch, and the sha of the new branch's HEAD.
+  : 'determine the repository\'s default branch from `gh repo view --json defaultBranchRef`. Do NOT use the currently checked-out branch.'} Return it as baseBranch. Create from the REMOTE ref \`origin/<baseBranch>\`, never the local ref — a local branch may hold unpushed commits, which would pull unrelated work into the PR diff and give reviewers the wrong diff to review.
+5. Pick a branch name like issue-${ISSUE_NUMBER}-<slug>. If it already exists from an aborted run, delete it first (\`git branch -D\`; if a stale worktree still holds it, \`git worktree list\` then \`git worktree remove --force\` before deleting).
+6. Create the worktree in a fresh temp directory OUTSIDE the repository tree: \`git worktree add <temp dir> -b <branch> origin/<baseBranch>\`. Return its absolute path as worktreePath, the branch as branch, and \`git rev-parse HEAD\` run inside it as headSha.
+7. Prove it: return every absolute path listed by \`git worktree list --porcelain\` in worktreePaths, \`git rev-parse --abbrev-ref HEAD\` run inside the new worktree as worktreeBranch, and the checkout's \`git rev-parse HEAD\` re-read afterwards as repoHeadAfter.
 
 ${REPO_CONTEXT}`,
   { label: 'setup:worktree', schema: BRANCH_SCHEMA, agentType: 'general-purpose' })
 if (branchResult === null) throw new Error('setup:worktree agent failed — no worktree to implement in')
-if (branchResult.dirty) {
-  throw new Error(`The checkout at ${REPO_PATH || 'cwd'} has uncommitted changes — refusing to run rather than stashing them. Commit, stash, or discard them yourself, or pass allowDirtyTree: true to proceed and leave them untouched.${branchResult.dirtyPaths?.length ? ` Dirty paths: ${branchResult.dirtyPaths.join(', ')}` : ''}`)
+
+const DIRTY_PATHS = branchResult.dirtyPaths || []
+// The script decides this, not the agent: stashing mutates state the user did not offer, and a run
+// that silently tidies the tree is worse than one that stops.
+if (DIRTY_PATHS.length && !ALLOW_DIRTY_TREE) {
+  throw new Error(`The checkout at ${branchResult.repoRoot || REPO_PATH || 'cwd'} has uncommitted changes — refusing to run rather than stashing them. Commit, stash, or discard them yourself, or pass allowDirtyTree: true to proceed and leave them untouched. Dirty paths: ${DIRTY_PATHS.join(', ')}`)
 }
+
 const { branch, headSha: baseSha, worktreePath: WORKTREE_PATH } = branchResult
 if (!WORKTREE_PATH) throw new Error('setup:worktree returned no worktree path — refusing to fall back to the user\'s checkout')
 // baseSha anchors every parallel chain (`git worktree add -b <chain> ${baseSha}`) and the
 // integration cherry-pick ranges, so an absent one would silently corrupt those commands.
 if (!branch || !baseSha) throw new Error(`setup:worktree returned an incomplete result (branch=${JSON.stringify(branch)}, headSha=${JSON.stringify(baseSha)}) — cannot anchor milestone chains`)
+
+// Enforcement. Each check below is the difference between "the agent was asked to isolate" and
+// "the run is isolated": without them a setup that did a plain checkout still reads as success.
+const reportedWorktrees = branchResult.worktreePaths || []
+if (!reportedWorktrees.includes(WORKTREE_PATH)) {
+  throw new Error(`setup:worktree reported ${WORKTREE_PATH} but \`git worktree list\` does not contain it (${reportedWorktrees.join(', ') || 'no worktrees listed'}) — the run is not isolated, refusing to continue`)
+}
+// A "worktree" inside the repo would put the run's commits and build output in the user's tree,
+// which is most of what isolation is meant to prevent.
+const repoRoot = branchResult.repoRoot || REPO_PATH
+if (repoRoot && (WORKTREE_PATH === repoRoot || WORKTREE_PATH.startsWith(`${repoRoot}/`))) {
+  throw new Error(`Worktree ${WORKTREE_PATH} is inside the checkout at ${repoRoot} — it must live outside the repository tree, refusing to continue`)
+}
+if (branchResult.worktreeBranch && branchResult.worktreeBranch !== branch) {
+  throw new Error(`Worktree at ${WORKTREE_PATH} has ${branchResult.worktreeBranch} checked out, not ${branch} — refusing to implement on the wrong branch`)
+}
+// The whole promise of the change: the user's HEAD is where they left it.
+if (branchResult.repoHeadBefore && branchResult.repoHeadAfter && branchResult.repoHeadBefore !== branchResult.repoHeadAfter) {
+  throw new Error(`Setup moved the checkout's HEAD from ${branchResult.repoHeadBefore} to ${branchResult.repoHeadAfter} — it must be left untouched. Restore it with \`git checkout ${branchResult.repoBranchBefore || branchResult.repoHeadBefore}\` before rerunning`)
+}
+
 // Everything past this point works in the worktree, so every later prompt must say so.
 REPO_CONTEXT = repoContext(WORKTREE_PATH)
-log(`Worktree ready: ${WORKTREE_PATH} on ${branch} at ${baseSha}, cut from origin/${branchResult.baseBranch || BASE_BRANCH || 'default'}`)
-if (ALLOW_DIRTY_TREE && branchResult.dirtyPaths?.length) {
-  log(`Note: the checkout has uncommitted changes left untouched, so they are NOT part of ${branch}: ${branchResult.dirtyPaths.join(', ')}`)
+log(`Worktree verified: ${WORKTREE_PATH} on ${branch} at ${baseSha}, cut from origin/${branchResult.baseBranch || BASE_BRANCH || 'default'}; checkout left on ${branchResult.repoBranchBefore || 'its original branch'} at ${branchResult.repoHeadBefore || 'its original HEAD'}`)
+if (DIRTY_PATHS.length) {
+  log(`Note: ${DIRTY_PATHS.length} uncommitted change(s) in the checkout are left untouched and are NOT part of ${branch}: ${DIRTY_PATHS.join(', ')}`)
 }
 
 phase('Plan')

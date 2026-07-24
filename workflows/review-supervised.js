@@ -974,18 +974,19 @@ report.startingSha = resolvedPr.headSha || ''
 log(`Resolved PR #${PR_NUMBER}: head branch ${PR_BRANCH}${resolvedPr.state ? ` (${resolvedPr.state})` : ''} at ${resolvedPr.headSha || 'unknown sha'}`)
 
 // The fix rounds commit and push, so they get a dedicated worktree rather than the user's
-// checkout. Created from the PR's own head branch — this workflow works from a PR number alone,
-// so there is no base branch to choose and nothing to confirm.
-const worktreeResult = await agent(`Set up an isolated worktree to run review fixes for PR #${PR_NUMBER} on head branch ${PR_BRANCH}.
+// checkout. Created from the PR's own head branch — this workflow works from a PR number alone, so
+// there is no base branch to choose and nothing to confirm. One agent does it (it needs judgment
+// for fork heads and stale worktrees) but does not get the final word on whether it complied: it
+// returns the raw facts and the script enforces them below.
+const worktreeResult = await agent(`Set up an isolated worktree to run review fixes for PR #${PR_NUMBER} on head branch ${PR_BRANCH}. The user's own checkout must be left exactly as you found it: never run \`git checkout\`, \`git switch\`, \`git reset\`, or \`git stash\` in it.
 
-1. Check for uncommitted changes with \`git status --porcelain\`. ${ALLOW_DIRTY_TREE
-  ? 'The caller has acknowledged a dirty tree, so proceed — but do NOT stash, commit, revert, or otherwise touch those changes. Report them in dirtyPaths.'
-  : 'If there are ANY, stop immediately and return dirty=true with the offending paths in dirtyPaths. Do not stash, commit, or discard them, and do not continue.'}
-2. Run \`git fetch origin\`.
-3. Create a worktree for the PR head in a fresh temp directory OUTSIDE the repository: \`git worktree add <temp dir> ${PR_BRANCH}\`. If ${PR_BRANCH} has no local ref yet, create it tracking the remote head instead: \`git worktree add <temp dir> -b ${PR_BRANCH} origin/${PR_BRANCH}\`. If a stale worktree from an aborted run already holds ${PR_BRANCH}, \`git worktree list\` and \`git worktree remove --force\` it first.
-4. If the PR comes from a fork, its head lives in another repository — add that fork as a remote and fetch the head from there rather than assuming \`origin\` has it. Report whether you did this in detail.
-
-Do not run \`git checkout\`/\`git switch\` in the user's checkout at any point — its HEAD must be exactly where it started. Return the worktree path.
+1. Record the starting state of the checkout and return it: \`git rev-parse --show-toplevel\` as repoRoot, \`git rev-parse --abbrev-ref HEAD\` as repoBranchBefore, \`git rev-parse HEAD\` as repoHeadBefore, and each path from \`git status --porcelain\` in dirtyPaths (empty array when clean).
+2. ${ALLOW_DIRTY_TREE
+  ? 'The caller has acknowledged that the tree may be dirty, so continue — but leave those changes exactly as they are.'
+  : 'If dirtyPaths is not empty, STOP NOW: return what you have and create nothing. Do not stash, commit, or discard anything.'}
+3. Run \`git fetch origin\`.
+4. Create a worktree for the PR head in a fresh temp directory OUTSIDE the repository tree: \`git worktree add <temp dir> ${PR_BRANCH}\`. If ${PR_BRANCH} has no local ref yet, create it tracking the remote head instead: \`git worktree add <temp dir> -b ${PR_BRANCH} origin/${PR_BRANCH}\`. If a stale worktree from an aborted run already holds ${PR_BRANCH}, \`git worktree list\` and \`git worktree remove --force\` it first. If the PR comes from a fork its head lives in another repository — add that fork as a remote and fetch the head from there rather than assuming \`origin\` has it, and say so in detail. Return the absolute worktree path as worktreePath.
+5. Prove it: return every absolute path listed by \`git worktree list --porcelain\` in worktreePaths, \`git rev-parse --abbrev-ref HEAD\` run inside the new worktree as worktreeBranch, and the checkout's \`git rev-parse HEAD\` re-read afterwards as repoHeadAfter.
 
 ${REPO_CONTEXT}`,
   {
@@ -994,23 +995,55 @@ ${REPO_CONTEXT}`,
       type: 'object',
       properties: {
         worktreePath: { type: 'string' },
-        dirty: { type: 'boolean' },
-        dirtyPaths: { type: 'array', items: { type: 'string' } },
         detail: { type: 'string' },
+        // Evidence the script enforces below.
+        repoRoot: { type: 'string' },
+        repoBranchBefore: { type: 'string' },
+        repoHeadBefore: { type: 'string' },
+        repoHeadAfter: { type: 'string' },
+        worktreePaths: { type: 'array', items: { type: 'string' } },
+        worktreeBranch: { type: 'string' },
+        dirtyPaths: { type: 'array', items: { type: 'string' } },
       },
       required: [],
     },
     agentType: 'general-purpose',
   })
 if (worktreeResult === null) throw new Error('setup:worktree agent failed — no worktree to run fixes in')
-if (worktreeResult.dirty) {
-  throw new Error(`The checkout at ${REPO_PATH || 'cwd'} has uncommitted changes — refusing to run rather than stashing them. Commit, stash, or discard them yourself, or pass allowDirtyTree: true to proceed and leave them untouched.${worktreeResult.dirtyPaths?.length ? ` Dirty paths: ${worktreeResult.dirtyPaths.join(', ')}` : ''}`)
+
+const DIRTY_PATHS = worktreeResult.dirtyPaths || []
+// The script decides this, not the agent: stashing mutates state the user did not offer.
+if (DIRTY_PATHS.length && !ALLOW_DIRTY_TREE) {
+  throw new Error(`The checkout at ${worktreeResult.repoRoot || REPO_PATH || 'cwd'} has uncommitted changes — refusing to run rather than stashing them. Commit, stash, or discard them yourself, or pass allowDirtyTree: true to proceed and leave them untouched. Dirty paths: ${DIRTY_PATHS.join(', ')}`)
 }
+
 const WORKTREE_PATH = worktreeResult.worktreePath
 if (!WORKTREE_PATH) throw new Error('setup:worktree returned no worktree path — refusing to fall back to the user\'s checkout')
+
+// Enforcement. Each check is the difference between "the agent was asked to isolate" and "the run
+// is isolated": without them a setup that did a plain checkout still reads as success.
+const reportedWorktrees = worktreeResult.worktreePaths || []
+if (!reportedWorktrees.includes(WORKTREE_PATH)) {
+  throw new Error(`setup:worktree reported ${WORKTREE_PATH} but \`git worktree list\` does not contain it (${reportedWorktrees.join(', ') || 'no worktrees listed'}) — the run is not isolated, refusing to continue`)
+}
+const repoRoot = worktreeResult.repoRoot || REPO_PATH
+if (repoRoot && (WORKTREE_PATH === repoRoot || WORKTREE_PATH.startsWith(`${repoRoot}/`))) {
+  throw new Error(`Worktree ${WORKTREE_PATH} is inside the checkout at ${repoRoot} — it must live outside the repository tree, refusing to continue`)
+}
+// Fix rounds push to this branch, so the wrong branch here means pushing to the wrong PR.
+if (worktreeResult.worktreeBranch && worktreeResult.worktreeBranch !== PR_BRANCH) {
+  throw new Error(`Worktree at ${WORKTREE_PATH} has ${worktreeResult.worktreeBranch} checked out, not PR #${PR_NUMBER}'s head branch ${PR_BRANCH} — refusing to push fixes to the wrong branch`)
+}
+if (worktreeResult.repoHeadBefore && worktreeResult.repoHeadAfter && worktreeResult.repoHeadBefore !== worktreeResult.repoHeadAfter) {
+  throw new Error(`Setup moved the checkout's HEAD from ${worktreeResult.repoHeadBefore} to ${worktreeResult.repoHeadAfter} — it must be left untouched. Restore it with \`git checkout ${worktreeResult.repoBranchBefore || worktreeResult.repoHeadBefore}\` before rerunning`)
+}
+
 // Everything past this point works in the worktree, so every later prompt must say so.
 REPO_CONTEXT = repoContext(WORKTREE_PATH)
-log(`Worktree ready: ${WORKTREE_PATH} on ${PR_BRANCH}${worktreeResult.detail ? ` — ${worktreeResult.detail}` : ''}`)
+log(`Worktree verified: ${WORKTREE_PATH} on ${PR_BRANCH}${worktreeResult.detail ? ` — ${worktreeResult.detail}` : ''}; checkout left on ${worktreeResult.repoBranchBefore || 'its original branch'} at ${worktreeResult.repoHeadBefore || 'its original HEAD'}`)
+if (DIRTY_PATHS.length) {
+  log(`Note: ${DIRTY_PATHS.length} uncommitted change(s) in the checkout are left untouched: ${DIRTY_PATHS.join(', ')}`)
+}
 
 await initializeReport()
 
