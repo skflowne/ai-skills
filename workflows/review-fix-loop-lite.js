@@ -27,8 +27,13 @@ const PR_NUMBER = ARGS.prNumber
 const REPO_SLUG = ARGS.repoSlug
 const REPO_PATH = ARGS.repoPath
 const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
-  ? `Repo context: ${REPO_PATH ? `local checkout at ${REPO_PATH} (cd there for git operations)` : ''}${REPO_PATH && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh command — do not rely on cwd's default remote)` : ''}.`
+  ? `Repo context: ${REPO_PATH ? `local checkout at ${REPO_PATH} (cd there for git operations)` : ''}${REPO_PATH && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh subcommand that accepts it — do not rely on cwd's default remote). \`gh api\` has no --repo flag and resolves the {owner}/{repo} placeholders from the cwd's remote, so spell the repo out in the path instead: repos/${REPO_SLUG}/...` : ''}.`
   : ''
+
+// gh invocation fragments the report agent must not have to derive. `gh api` takes no --repo flag,
+// so a run whose cwd is not the target checkout has to carry the slug in the path itself.
+const GH_REPO_FLAG = REPO_SLUG ? ` --repo ${REPO_SLUG}` : ''
+const GH_API_REPO = REPO_SLUG ? `repos/${REPO_SLUG}` : 'repos/{owner}/{repo}'
 
 const MAX_ROUNDS = 4
 // A Workflow agent() call can't spawn a further subagent of its own, so a single agent told to
@@ -49,7 +54,9 @@ const FINDING_ITEM_SCHEMA = {
     severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
     area: { type: 'string' },
     file: { type: 'string' },
-    description: { type: 'string', minLength: 1, maxLength: 240 },
+    // No maxLength: a hard cap here fails the whole structured-output call when a reviewer writes
+    // one sentence too many. Ask for concision in the prompt instead.
+    description: { type: 'string', minLength: 1 },
     failureScenario: { type: 'string', minLength: 1 },
     evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1 },
     finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
@@ -194,8 +201,10 @@ const SCOUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    summary: { type: 'string', minLength: 1, maxLength: 500 },
-    observations: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 300 }, maxItems: 8 },
+    // Same reasoning as FINDING_ITEM_SCHEMA: no hard string/array caps that can fail the call.
+    // The script truncates instead (see runScoutPass).
+    summary: { type: 'string', minLength: 1 },
+    observations: { type: 'array', items: { type: 'string', minLength: 1 } },
   },
   required: ['summary', 'observations'],
 }
@@ -232,7 +241,26 @@ const report = {
 let reportCommentId = null
 let reportingAvailable = PR_REPORTING
 let reportFailures = 0
-let reportQueue = Promise.resolve()
+let reportRunner = null
+let queuedReasons = []
+
+// Report token budget. The report agent's cost is (prompt + rendered body) in, (body) out, once per
+// update — so the body is paid for twice on every write. Keep it bounded and boring.
+const MAX_SCOUT_UPDATES_SHOWN = 4
+const MAX_SCOUT_OBSERVATIONS = 8
+const MAX_OBSERVATION_CHARS = 300
+const MAX_SUMMARY_CHARS = 500
+const MAX_DESCRIPTION_CHARS = 400
+// Runaway backstop only. Scouting must cover the whole phase — that is the point of it, and a long
+// fix phase is exactly when visibility matters most — so this is set well above the number of
+// back-to-back passes any real phase fits, not used to ration updates. Per-pass cost is controlled
+// by routing scouts to a cheap tier (see the scout agent's model/effort) instead.
+const MAX_SCOUT_TICKS = 60
+
+function truncate(text, max) {
+  const value = String(text == null ? '' : text).replace(/\s+/g, ' ').trim()
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
 
 function severityBreakdown(findings) {
   if (!findings.length) return 'none'
@@ -241,25 +269,94 @@ function severityBreakdown(findings) {
   return Object.entries(counts).filter(([, count]) => count > 0).map(([severity, count]) => `${count} ${severity}`).join(', ')
 }
 
+// Rendering the body here rather than in the report agent's prompt is the main token saving: the
+// agent no longer reads a pretty-printed JSON dump of the whole workflow state and writes prose
+// from it, it just copies a finished body through and stamps the time.
+function renderFindings(findings) {
+  if (!findings.length) return '_none_'
+  return findings.map(finding => {
+    const where = finding.file ? ` \`${finding.file}\`` : ''
+    const area = finding.area ? ` (${finding.area})` : ''
+    const finders = finding.finders && finding.finders.length ? ` — _found by ${finding.finders.join(', ')}_` : ''
+    return `- **${finding.severity}**${where}${area} ${truncate(finding.description, MAX_DESCRIPTION_CHARS)}${finders}`
+  }).join('\n')
+}
+
+function renderReportBody() {
+  const scouts = report.scoutUpdates.slice(-MAX_SCOUT_UPDATES_SHOWN).reverse()
+  return [
+    REPORT_MARKER,
+    '',
+    '## Review-lite workflow report',
+    '',
+    // Bullets, not bare lines: GitHub joins consecutive plain lines into one paragraph.
+    `- **Status:** ${report.status}`,
+    `- **Phase:** ${report.currentPhase} · **Last milestone:** ${report.lastMilestone}`,
+    `- **Head:** ${report.startingSha || '_unknown_'} → ${report.finalSha || '_no verified fix yet_'}`,
+    report.checksPassed === null ? null : `- **Checks:** ${report.checksPassed ? 'passed' : 'not passing'}`,
+    report.failure ? `- **Failure:** ${truncate(report.failure, 1000)}` : null,
+    '',
+    `### Panel`,
+    report.panel.length ? report.panel.map(expert => `- **${expert.role}** — ${truncate(expert.focus, 200)}`).join('\n') : '_not chosen yet_',
+    '',
+    `### Findings (${report.findingsStatus}) — ${severityBreakdown(report.findings)}`,
+    renderFindings(report.findings),
+    '',
+    '### Verified fix commits',
+    report.commits.length ? report.commits.map(commit => `- \`${commit.sha}\` ${commit.title}`).join('\n') : '_none_',
+    '',
+    `### Scout observations (most recent first)`,
+    scouts.length ? scouts.map(update => [
+      `**${update.phase} · report ${update.tick}** — ${update.summary}`,
+      ...update.observations.map(observation => `  - ${observation}`),
+    ].join('\n')).join('\n\n') : '_none_',
+    '',
+    '_Updated at UPDATED_AT_PLACEHOLDER._',
+  ].filter(line => line !== null).join('\n')
+}
+
 async function writeReportComment(reason) {
   if (!reportingAvailable) return
   try {
-    const result = await agent(`Maintain the live progress-report comment on PR #${PR_NUMBER}.
+    const result = await agent(`Update the live progress-report comment on PR #${PR_NUMBER} (reason: ${reason}).
 
 ${REPO_CONTEXT}
 
-Using gh, find the PR comment containing the marker ${REPORT_MARKER} (list the PR's comments via the GitHub API, paginating). If none exists, create it; otherwise update it in place — there is exactly one report comment, never a new one per update.
+The body is already rendered below. Post it verbatim — do not summarize, reorder, reformat, or add sections — with exactly one change: replace the literal token UPDATED_AT_PLACEHOLDER with the current UTC timestamp (you have clock access, the workflow script does not).
 
-Rewrite the body as a concise status report built from the workflow state below: start with the marker line on its own line, then a '## Review-lite workflow report' heading, current status, last milestone, current phase, starting head and current verified head SHAs, the panel roster, the latest review verdict (severity breakdown, plus each finding's severity/file/description with finder attribution), verified-fix commits with check status, and the scout observations (most recent first). Add an 'Updated at' timestamp — you have clock access, the workflow script does not. Keep the body under 60000 characters. Reason for this update: ${reason}.
+Steps:
 
-Workflow state:
-${JSON.stringify({ ...report, scoutUpdates: report.scoutUpdates.slice(-6) }, null, 2)}
+1. Write the body to a scratch file, e.g. /tmp/review-lite-report-${PR_NUMBER}.md. Use a heredoc quoted as <<'MARKDOWN' so the shell expands nothing inside it.
+${reportCommentId
+  ? `2. Edit comment id ${reportCommentId} in place:
+   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/${reportCommentId} -F body=@/tmp/review-lite-report-${PR_NUMBER}.md\`
+   Do not list the PR's comments and do not create a new one — that id is known to be correct.`
+  : `2. Find the existing report comment:
+   \`gh api --paginate ${GH_API_REPO}/issues/${PR_NUMBER}/comments --jq '.[] | select(.body | contains("${REPORT_MARKER}")) | .id'\`
+   If that prints an id, edit it in place:
+   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/<id> -F body=@/tmp/review-lite-report-${PR_NUMBER}.md\`
+   If it prints nothing, create the comment:
+   \`gh pr comment ${PR_NUMBER}${GH_REPO_FLAG} --body-file /tmp/review-lite-report-${PR_NUMBER}.md\`
+   Then re-run the lookup to get its id. There is exactly one report comment for the whole run.`}
+3. Verify: \`gh api ${GH_API_REPO}/issues/comments/<id> --jq '.body' | head -1\` must print the marker line, not a file path.
 
-Write the rendered body to a scratch file, then post it with a command that reads the body from that file — never pass "@path" as a literal --body string, since gh does not expand it and will post the literal "@path" text as the comment. To create the comment, use \`gh pr comment ${PR_NUMBER} --body-file <path>\`. To edit the existing comment by id, use \`gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -f body=@<path>\` (the api subcommand's -f/-F flags are what support the @path idiom — gh pr comment's --body does not). After posting, re-fetch the comment and confirm its body starts with the marker line, not a literal file path.
+gh flag rules that this breaks on if ignored:
+- \`--body\` does NOT expand a leading "@" — passing "@/tmp/file.md" posts that literal string as the comment text. Only \`gh api\`'s -f/-F flags support the @path idiom, and only -F (not -f) reads the file's raw contents.
+- \`gh api\` has no --repo flag; it resolves {owner}/{repo} from the cwd's git remote, so use the repo path spelled out above.
+- \`gh pr comment\` creates a new comment every time — never use it to update an existing one.
 
-Return updated=true with the comment id on success, updated=false otherwise.`, {
+Return updated=true with the comment id on success, updated=false otherwise. Keep your summary to one short sentence.
+
+--- BODY ---
+${renderReportBody()}
+--- END BODY ---`, {
       label: 'report:update',
       schema: REPORT_UPDATE_SCHEMA,
+      // The body arrives pre-rendered, so this agent only has to copy it through and run two gh
+      // commands — no reasoning tier needed. Not the cheapest tier though: a botched report is
+      // user-visible, and three failures disable reporting for the rest of the run.
+      model: 'sonnet',
+      effort: 'low',
     })
     if (result === null || !result.updated) throw new Error(result === null ? 'report agent failed' : result.summary)
     reportCommentId = result.commentId
@@ -275,10 +372,24 @@ Return updated=true with the comment id on success, updated=false otherwise.`, {
   }
 }
 
-// Serializes report writes so concurrent milestones cannot interleave comment updates.
+// Serializes report writes so concurrent milestones cannot interleave comment updates, and
+// coalesces any that pile up behind an in-flight one: the body is a full render of current state,
+// so N queued writes would each post the same content — one agent run covers them all.
 function updateReport(reason) {
-  reportQueue = reportQueue.then(() => writeReportComment(reason))
-  return reportQueue
+  if (!reportingAvailable) return Promise.resolve()
+  queuedReasons.push(reason)
+  if (!reportRunner) {
+    reportRunner = (async () => {
+      while (queuedReasons.length) {
+        const reasons = queuedReasons
+        queuedReasons = []
+        const dropped = reasons.length - 1
+        await writeReportComment(dropped ? `${reasons[dropped]} (+${dropped} coalesced)` : reasons[0])
+      }
+      reportRunner = null
+    })()
+  }
+  return reportRunner
 }
 
 async function runScoutPass(phaseName, tick, isSettled) {
@@ -288,16 +399,20 @@ ${REPO_CONTEXT}
 
 Inspect the actual checkout and any relevant sub-agent artifacts or runtime metadata created during ${phaseName}. During review, focus on observable panel/reviewer activity. During fixes, also inspect git status, changed files and diff statistics, relevant source/tests, running checks, commits, and the remote PR head. Do not edit files, commit, push, post to GitHub, or claim partial work is complete. Report only factual observations; omit anything uncertain.
 
-Known panel:
-${JSON.stringify(report.panel, null, 2)}
+Known panel: ${report.panel.length ? report.panel.map(expert => expert.role).join(', ') : 'not chosen yet'}
 
 Current actionable findings:
-${JSON.stringify(report.findings, null, 2)}
+${report.findings.length ? report.findings.map(finding => `- [${finding.severity}] ${finding.file ? `${finding.file}: ` : ''}${truncate(finding.description, MAX_DESCRIPTION_CHARS)}`).join('\n') : '- none'}
 
-Return a compact summary and up to 8 observations.`, {
+Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SCOUT_OBSERVATIONS} observations of at most ${MAX_OBSERVATION_CHARS} characters each. Anything longer is truncated.`, {
     phase: report.currentPhase,
     label: `${phaseName}:scout:${tick}`,
     schema: SCOUT_SCHEMA,
+    // Observing and describing state is a cheap job, and it runs continuously for the whole phase.
+    // Keep the tier low so full-duration visibility does not cost reasoning-model tokens.
+    // (codex routes `*:scout:*` to its own cheap `reporter` role and ignores these.)
+    model: 'haiku',
+    effort: 'low',
   })
 
   // The phase can finish while this pass was in flight — a "yep, it's done" observation only
@@ -307,11 +422,12 @@ Return a compact summary and up to 8 observations.`, {
     return result !== null
   }
 
+  // The schema no longer caps these (a cap there fails the whole call); enforce the size here.
   report.scoutUpdates.push({
     phase: phaseName,
     tick,
-    summary: result === null ? 'Scout report unavailable.' : result.summary,
-    observations: result === null ? [] : result.observations,
+    summary: result === null ? 'Scout report unavailable.' : truncate(result.summary, MAX_SUMMARY_CHARS),
+    observations: result === null ? [] : result.observations.slice(0, MAX_SCOUT_OBSERVATIONS).map(observation => truncate(observation, MAX_OBSERVATION_CHARS)),
   })
   await updateReport(`${phaseName} scout report ${tick}`)
   return result !== null
@@ -328,7 +444,7 @@ async function withPhaseScout(phaseName, operation) {
   const operationPromise = Promise.resolve().then(operation).finally(() => { settled = true })
   const scoutPromise = reportingAvailable ? (async () => {
     let tick = 1
-    while (!settled && reportingAvailable && scoutFailures < 3 && tick <= 20) {
+    while (!settled && reportingAvailable && scoutFailures < 3 && tick <= MAX_SCOUT_TICKS) {
       try {
         scoutFailures = (await runScoutPass(phaseName, tick, () => settled)) ? 0 : scoutFailures + 1
       } catch (error) {
@@ -508,6 +624,7 @@ ${REPO_CONTEXT}`, {
     schema: REMOTE_HEAD_SCHEMA,
   })
   if (beforeFix === null || !beforeFix.headSha) throw new Error(`Round ${round}: could not establish the remote PR head; refusing to dispatch fixes`)
+  if (!report.startingSha) report.startingSha = beforeFix.headSha
 
   return withPhaseScout(`Fix round ${round}`, async () => {
     phase('Fix')

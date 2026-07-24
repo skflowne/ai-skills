@@ -36,7 +36,9 @@ const FINDING_ITEM_SCHEMA = {
     severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
     area: { type: 'string' },
     file: { type: 'string' },
-    description: { type: 'string', minLength: 1, maxLength: 240, description: 'Concise statement of the issue.' },
+    // No maxLength: a hard cap here fails the whole structured-output call when a reviewer writes
+    // one sentence too many. Ask for concision in the prompt instead.
+    description: { type: 'string', minLength: 1, description: 'Concise statement of the issue.' },
     failureScenario: { type: 'string', minLength: 1, description: 'Concrete sequence or conditions that cause harm and its impact.' },
     evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, description: 'Concrete supporting evidence, such as file/line references, test output, or documentation.' },
     finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
@@ -125,7 +127,7 @@ ${REPO_CONTEXT}
 
 ${reports.map((r, i) => r ? `### ${COUNCIL_EXPERTS[i].role}\n${r}` : null).filter(Boolean).join('\n\n')}
 
-Return the synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.`,
+Return the synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.`,
 
     { phase: 'Review', label: `r${round}:council:synthesis`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })
 
@@ -137,7 +139,7 @@ async function runYoloPanel(prNumber, round) {
   log(`  [yolo] supervisor composing the roster and dispatching reviewer sub-agents`)
   const panel = await agent(`Follow the yolo-council-review skill to run the complete tailored council review for PR #${prNumber}. You are the panel supervisor: fetch the PR, linked issues, diff, and original goal; compose a distinct 2-6 expert roster; then spawn one reviewer sub-agent per expert, all in parallel. The children are reviewer roles, not supervisors. Give each child the PR and issue context plus its assigned role/focus, and have it follow the pr-review skill without posting comments.
 
-After every reviewer returns, critically synthesize their reports yourself: verify evidence, fetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise 'description' (at most 240 characters), 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps.
+After every reviewer returns, critically synthesize their reports yourself: verify evidence, fetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps.
 
 ${REPO_CONTEXT}`,
     { phase: 'Review', label: `r${round}:yolo:supervisor`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })

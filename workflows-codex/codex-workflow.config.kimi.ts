@@ -30,8 +30,14 @@ export default {
     supervisor: { ...moonshot('kimi-k3', 'high'), agentTimeoutMs: 25 * 60 * 1000 },
     review: moonshot('kimi-k3', 'high'),
     judge: moonshot('kimi-k3', 'high'),
-    // Read-only periodic PR progress scout; keep each pass bounded.
+    // Read-only periodic PR progress scout; keep each pass bounded. It runs back-to-back for the
+    // whole duration of every phase, so the cheap tier here is what makes continuous visibility
+    // affordable.
     reporter: { ...moonshot('kimi-k2.5'), excludeTools: ['edit', 'write'], agentTimeoutMs: 5 * 60 * 1000 },
+    // Writes the live PR report comment. Same cheap tier as the scout — the body arrives
+    // pre-rendered from the workflow script, so this role only copies it through and calls gh — but
+    // it needs write tools for the scratch file the body is posted from.
+    report: { ...moonshot('kimi-k2.5'), agentTimeoutMs: 5 * 60 * 1000 },
 
     // Coding roles use Kimi K2.7 Code; test execution uses Kimi K2.5.
     implement: moonshot('kimi-k2.7-code'),
@@ -54,6 +60,7 @@ export default {
     { match: '*:yolo:*', provider: 'review' },
     { match: '*:council:*', provider: 'review' },
     { match: '*:scout:*', provider: 'reporter' },
+    { match: 'report:*', provider: 'report' },
     { match: '*:judge', provider: 'judge' },
     { match: '*:review', provider: 'review' },
     { match: '*:fix', provider: 'fix' },
@@ -64,7 +71,8 @@ export default {
     { match: 'e2e:run-tests', provider: 'test' },
     { match: 'final-review:rerun-tests', provider: 'test' },
   ],
-  // Fallback for a `model: 'opus'` hint (e.g. meta.phases[].model) that a label route above
-  // doesn't already cover.
-  modelAliases: { opus: 'design' },
+  // Fallback for a Claude-style capability hint (e.g. `agent({model: 'opus'})`,
+  // `meta.phases[].model`) that a label route above doesn't already cover. The cheap hints map to
+  // the cheap roles so a script asking for a small model doesn't land on `general`.
+  modelAliases: { opus: 'design', sonnet: 'report', haiku: 'reporter' },
 }
