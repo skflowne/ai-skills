@@ -41,13 +41,15 @@ Use high-capability reasoning models for both reviewers. Never choose fast, low-
 
 If a preferred model is unavailable, use the strongest substitute and disclose it. Keep the primary on the user-selected/default model unless asked otherwise.
 
-## Brief the reviewers independently
+## Brief the reviewers independently, once, up front
 
-Give both reviewers only task-local requirements, milestone boundaries, relevant paths or raw artifacts, and an instruction not to edit files.
+The spawn brief is the only time the primary describes the task to a reviewer. Give each reviewer, once: the original task prompt, the requirements, the complete milestone plan, the working branch and base ref, and an instruction not to edit files.
 
-Ask the correctness reviewer to identify invariants, regression risks, validation targets, and missing review gates across the plan. Do not ask it to co-design the implementation.
+Ask the correctness reviewer to identify invariants, regression risks, validation targets, and missing review gates across the plan. State the standing expectation for every review: concrete correctness and regression findings ranked by severity with exact file and line references. Do not ask it to co-design the implementation.
 
 Ask the test-coverage reviewer to design automated tests for milestone 1 only. Require concrete test cases, assertions, fixtures/mocks, commands, and the failure that should prove RED. Do not request tests for later milestones yet and do not reveal the intended implementation.
+
+If the milestone plan changes later, send both reviewers the updated plan as a plain factual update with no commentary on work in progress.
 
 ## Milestones are communication checkpoints
 
@@ -65,12 +67,11 @@ For each milestone:
 6. Share the RED evidence with the test reviewer when the failure is ambiguous or the test design materially changed.
 7. Implement the smallest complete production change that satisfies the milestone.
 8. Run the new tests and relevant regression suite to establish GREEN.
-9. Send the raw milestone diff, requirements, and test output to both reviewers:
-   - correctness reviewer: concrete correctness/regression findings ranked by severity with exact file and line references;
-   - test reviewer: missing cases, false positives, brittle assertions, inadequate failure proof, and coverage gaps.
-10. Call `subagent_wait` for both reviewers. Do not `end_turn` while waiting.
-11. Verify findings, fix valid ones, rerun RED/GREEN-relevant validation, and send corrections back to the appropriate reviewer; call `subagent_wait` after each follow-up until both report no substantive remaining findings.
-12. Only then mark the milestone complete and request test design for the next milestone.
+9. Commit the milestone's work (tests and production code) with a message that names the milestone (e.g. `M2: <summary>`) so the reviewers can locate it.
+10. Request review from both reviewers with only the milestone identifier (e.g. "Review M2") plus the raw, unedited RED and GREEN output (the commands run and their verbatim output) so neither reviewer reruns the same suites. Do not send diffs, change summaries, restated requirements, or areas to focus on: each reviewer finds the milestone's commits and inspects the changes and tests itself. Provide other raw artifacts only when a reviewer asks for them. The correctness reviewer applies its standing brief; the test reviewer checks for missing cases, false positives, brittle assertions, inadequate failure proof, and coverage gaps.
+11. Call `subagent_wait` for both reviewers. Do not `end_turn` while waiting.
+12. Verify findings, fix valid ones, rerun RED/GREEN-relevant validation, and commit the fixes. Reply to the appropriate reviewer with only which findings were addressed or rejected (with concrete evidence for rejections), the raw rerun validation output, and a request to re-review the milestone — do not describe the fixes. Call `subagent_wait` after each follow-up until both report no substantive remaining findings.
+13. Only then mark the milestone complete and request test design for the next milestone.
 
 Reuse the same two reviewer processes through follow-up messages. Do not spawn replacements at each gate.
 
@@ -83,6 +84,7 @@ Structure behavior changes so each milestone can demonstrate RED/GREEN. For docu
 ## Preserve review integrity
 
 - Do not leak intended fixes, defend the design, or prescribe reviewer conclusions.
+- After the spawn brief, every review request contains only the milestone identifier and raw validation output. Never curate diffs, summarize changes, or steer a reviewer's attention. (Test-design requests and RED-evidence exchanges with the test reviewer are the designed exceptions.)
 - Verify findings against code and requirements; do not accept them mechanically.
 - Explain rejected findings with concrete evidence.
 - Do not build later high-risk layers on an unreviewed milestone.
@@ -92,7 +94,7 @@ Structure behavior changes so each milestone can demonstrate RED/GREEN. For docu
 ## Finish
 
 1. Run final tests, type checks, lint, builds, and runtime checks appropriate to the complete change.
-2. Send the final complete diff and validation evidence to both reviewers for one last focused pass; call `subagent_wait` for their results.
+2. Request one last focused pass from both reviewers, identifying the work only as the full branch against the base ref and attaching the raw final validation output; each reviewer inspects the final diff itself. Call `subagent_wait` for their results.
 3. Resolve and re-review all substantive final findings, using `subagent_wait` after each follow-up.
 4. Commit, push, publish, or mutate external state only when authorized.
 5. Report milestone RED/GREEN evidence, final validation, both independent review outcomes, model substitutions, and residual risk.
