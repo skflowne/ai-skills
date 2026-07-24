@@ -114,6 +114,91 @@ function validateSkill(dirName) {
     }
 }
 
+const META_DECLARATION = /export\s+const\s+meta\s*=\s*\{/;
+
+/**
+ * Return the source of the `export const meta = { ... }` object literal
+ * (braces included), or null when there is no such declaration.
+ * Scans with a depth counter that skips comments and string literals so that
+ * nested objects/arrays (e.g. `phases: [ { title: ... } ]`) are handled.
+ */
+function extractMetaBlock(content) {
+    const match = META_DECLARATION.exec(content);
+    if (!match) return null;
+
+    const start = match.index + match[0].length - 1; // index of the opening `{`
+    let depth = 0;
+    for (let i = start; i < content.length; i++) {
+        const char = content[i];
+        const next = content[i + 1];
+
+        if (char === "/" && next === "/") {
+            const newline = content.indexOf("\n", i);
+            if (newline === -1) break;
+            i = newline;
+            continue;
+        }
+        if (char === "/" && next === "*") {
+            const end = content.indexOf("*/", i + 2);
+            if (end === -1) break;
+            i = end + 1;
+            continue;
+        }
+        if (char === '"' || char === "'" || char === "`") {
+            for (let j = i + 1; j < content.length; j++) {
+                if (content[j] === "\\") {
+                    j++;
+                    continue;
+                }
+                if (content[j] === char) {
+                    i = j;
+                    break;
+                }
+                if (j === content.length - 1) i = j;
+            }
+            continue;
+        }
+
+        if (char === "{" || char === "[") depth++;
+        else if (char === "}" || char === "]") {
+            depth--;
+            if (depth === 0) return content.slice(start, i + 1);
+        }
+    }
+    return null; // unterminated
+}
+
+function validateWorkflow(filePath) {
+    let content;
+    try {
+        content = readFileSync(filePath, "utf8");
+    } catch (error) {
+        addProblem(filePath, `could not be read: ${error.message}`);
+        return;
+    }
+
+    const metaBlock = extractMetaBlock(content);
+    if (metaBlock === null) {
+        addProblem(filePath, "missing `export const meta = {` declaration");
+        return;
+    }
+
+    for (const key of ["name", "description"]) {
+        if (!new RegExp(`[{,\\s]${key}\\s*:`).test(metaBlock)) {
+            addProblem(filePath, `meta object is missing \`${key}:\``);
+        }
+    }
+}
+
+function findWorkflowFiles() {
+    const workflowsDir = join(REPO_ROOT, "workflows");
+    if (!existsSync(workflowsDir)) return [];
+    return readdirSync(workflowsDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+        .map((entry) => join(workflowsDir, entry.name))
+        .sort();
+}
+
 function findSkillDirs() {
     return readdirSync(REPO_ROOT, { withFileTypes: true })
         .filter((entry) => {
@@ -131,6 +216,10 @@ function findSkillDirs() {
 
 for (const dirName of findSkillDirs()) {
     validateSkill(dirName);
+}
+
+for (const filePath of findWorkflowFiles()) {
+    validateWorkflow(filePath);
 }
 
 if (problems.length > 0) {
