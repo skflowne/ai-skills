@@ -46,7 +46,9 @@ Review-supervised maintains one persistent PR workflow-report comment and runs a
 2. Resolve the repository path and verify it is a Git worktree.
 3. Run `gh auth status`. If authentication is unavailable, stop and explain.
 4. Inspect `git status --short`. If unrelated uncommitted changes exist, show them and obtain explicit
-   confirmation before proceeding; the implementation workflow may stash them.
+   confirmation before proceeding. Never stash them, and do not tell the user the workflow will:
+   uncommitted work stays untouched in the checkout and is simply not part of the branch, which also
+   means the PR will not contain changes the user may believe are included.
 5. Run the helper and wait for completion. Do not add a timeout field:
 
 ```bash
