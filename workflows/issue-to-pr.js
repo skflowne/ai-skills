@@ -26,6 +26,10 @@ const implemented = await workflow('skills:supervised-implement', {
   issueNumber: ARGS.issueNumber,
   repoSlug: ARGS.repoSlug,
   repoPath: ARGS.repoPath,
+  // Resolved (and, when ambiguous, confirmed with the user) by the launch skill before this run
+  // started. Absent, the child falls back to the repo's default branch — never the current HEAD.
+  baseBranch: ARGS.baseBranch,
+  allowDirtyTree: ARGS.allowDirtyTree,
 })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
@@ -33,10 +37,15 @@ if (!implemented.testsPassed) {
   log(`Warning: tests were not green going into the review loop — ${implemented.testSummary}`)
 }
 
+// No baseBranch here on purpose: review works from the PR number alone, which determines its own
+// head branch. allowDirtyTree MUST be forwarded though — this call is non-interactive, so nobody
+// can be asked anything, and a dirty-tree refusal here would abort the run after the PR is already
+// open. The user already answered that question once, at launch.
 const reviewed = await workflow('skills:review-supervised', {
   prNumber: implemented.prNumber,
   repoSlug: ARGS.repoSlug,
   repoPath: ARGS.repoPath,
+  allowDirtyTree: ARGS.allowDirtyTree,
 })
 
 return {

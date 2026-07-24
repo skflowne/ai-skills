@@ -19,10 +19,25 @@ if (ARGS == null || typeof ARGS !== 'object') throw new Error('args must be an o
 // agents resolve the issue and repo from cwd's default remote, which is ambiguous across multiple
 // checkouts. Same contract as review-supervised, so issue-to-pr can thread them to both children.
 const REPO_SLUG = ARGS.repoSlug
+// The user's own checkout. Read-only: it is the source `git worktree add` clones from and the
+// place gh lookups run before a worktree exists. Nothing in this run may commit, check out, or
+// otherwise mutate it — see WORKTREE_PATH below, which is where agents actually work.
 const REPO_PATH = ARGS.repoPath
-const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
-  ? `Repo context: ${REPO_PATH ? `local checkout at ${REPO_PATH} (cd there for git operations)` : ''}${REPO_PATH && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh subcommand that accepts it — do not rely on cwd's default remote). \`gh api\` has no --repo flag and resolves the {owner}/{repo} placeholders from the cwd's remote, so spell the repo out in the path instead: repos/${REPO_SLUG}/...` : ''}.`
+// Base branch to cut the run's branch from. The launch skill resolves and (when ambiguous)
+// confirms this; absent, setup falls back to the repo's default branch. Never the current HEAD.
+const BASE_BRANCH = ARGS.baseBranch
+// Explicit acknowledgement that the user's checkout has uncommitted changes and the run may
+// proceed anyway. Absent, a dirty tree is refused rather than silently stashed.
+const ALLOW_DIRTY_TREE = ARGS.allowDirtyTree === true
+
+// Built per-path, not once: after setup every prompt must point agents at the run's worktree, not
+// at the user's checkout. A single top-level const would keep saying "cd to REPO_PATH" for the
+// whole run and silently defeat the isolation.
+const repoContext = (path) => (REPO_SLUG || path)
+  ? `Repo context: ${path ? `local checkout at ${path} (cd there for git operations)` : ''}${path && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh subcommand that accepts it — do not rely on cwd's default remote). \`gh api\` has no --repo flag and resolves the {owner}/{repo} placeholders from the cwd's remote, so spell the repo out in the path instead: repos/${REPO_SLUG}/...` : ''}.`
   : ''
+// Reassigned once the run's worktree exists; every prompt after setup interpolates the new value.
+let REPO_CONTEXT = repoContext(REPO_PATH)
 const GH_REPO_FLAG = REPO_SLUG ? ` --repo ${REPO_SLUG}` : ''
 // Exact integer, or an all-digits string from a harness that stringifies numbers. Anything else
 // fails here — no agent gets to guess which issue was meant.
@@ -52,10 +67,19 @@ const ISSUE_RESOLVE_SCHEMA = {
 const BRANCH_SCHEMA = {
   type: 'object',
   properties: {
+    worktreePath: { type: 'string' },
     branch: { type: 'string' },
+    baseBranch: { type: 'string' },
     headSha: { type: 'string' },
+    // Set when the user's checkout had uncommitted changes. Without allowDirtyTree the setup agent
+    // stops here and the script throws; with it, the paths are logged as excluded from the branch.
+    dirty: { type: 'boolean' },
+    dirtyPaths: { type: 'array', items: { type: 'string' } },
   },
-  required: ['branch', 'headSha'],
+  // Nothing is required: the dirty-tree abort path legitimately returns only dirty/dirtyPaths and
+  // no branch. Requiring `branch` would fail schema validation and make the agent retry an abort
+  // it was told to perform. The script checks for the fields it needs immediately after the call.
+  required: [],
 }
 
 const PLAN_SCHEMA = {
@@ -200,13 +224,40 @@ if (resolvedIssue.state && resolvedIssue.state.toUpperCase() !== 'OPEN') {
 const ISSUE_PIN = `issue #${ISSUE_NUMBER} ("${resolvedIssue.title}")`
 log(`Pinned ${ISSUE_PIN}: ${resolvedIssue.url || 'no url reported'} (${resolvedIssue.state})`)
 
-const branchResult = await agent(`Create and check out a new branch for ${ISSUE_PIN} off an up-to-date default branch (name it something like issue-${ISSUE_NUMBER}-<slug>). Do not discard any unrelated uncommitted changes already in the working tree — stash them first if present and note that you did. Return the branch name and the sha of its HEAD.
+// The run never touches the user's checkout: it creates a dedicated worktree and works there. The
+// checkout is only the source `git worktree add` is invoked from, and its HEAD must not move.
+// A dirty tree is refused rather than stashed — stashing mutates state the user did not offer.
+const branchResult = await agent(`Set up an isolated worktree to implement ${ISSUE_PIN}.
+
+1. Check for uncommitted changes with \`git status --porcelain\`. ${ALLOW_DIRTY_TREE
+  ? 'The caller has acknowledged a dirty tree, so proceed — but do NOT stash, commit, revert, or otherwise touch those changes; leave them exactly as they are. Report them in dirtyPaths.'
+  : 'If there are ANY, stop immediately and return dirty=true with the offending paths in dirtyPaths. Do not stash, commit, or discard them, and do not continue.'}
+2. Run \`git fetch origin\`.
+3. Resolve the base branch: ${BASE_BRANCH
+  ? `use \`${BASE_BRANCH}\` — it was resolved and confirmed by the caller.`
+  : 'determine the repository\'s default branch from `gh repo view --json defaultBranchRef`. Do NOT use the currently checked-out branch.'} Base the new branch on the REMOTE ref \`origin/<base>\`, never the local ref — a local branch may hold unpushed commits, which would pull unrelated work into the PR diff.
+4. Pick a branch name like issue-${ISSUE_NUMBER}-<slug>. If it already exists from an aborted run, delete it first (\`git branch -D\`; if a stale worktree still holds it, \`git worktree list\` then \`git worktree remove --force\` before deleting).
+5. Create the worktree in a fresh temp directory OUTSIDE the repository: \`git worktree add <temp dir> -b <branch> origin/<base>\`.
+
+Do not run \`git checkout\`/\`git switch\` in the user's checkout at any point — its HEAD must be exactly where it started when you are done. Return the worktree path, the branch name, the resolved base branch, and the sha of the new branch's HEAD.
 
 ${REPO_CONTEXT}`,
-  { label: 'setup:branch', schema: BRANCH_SCHEMA, agentType: 'general-purpose' })
-if (branchResult === null) throw new Error('setup:branch agent failed — no branch to implement on')
-const { branch, headSha: baseSha } = branchResult
-log(`Branch ready: ${branch} at ${baseSha}`)
+  { label: 'setup:worktree', schema: BRANCH_SCHEMA, agentType: 'general-purpose' })
+if (branchResult === null) throw new Error('setup:worktree agent failed — no worktree to implement in')
+if (branchResult.dirty) {
+  throw new Error(`The checkout at ${REPO_PATH || 'cwd'} has uncommitted changes — refusing to run rather than stashing them. Commit, stash, or discard them yourself, or pass allowDirtyTree: true to proceed and leave them untouched.${branchResult.dirtyPaths?.length ? ` Dirty paths: ${branchResult.dirtyPaths.join(', ')}` : ''}`)
+}
+const { branch, headSha: baseSha, worktreePath: WORKTREE_PATH } = branchResult
+if (!WORKTREE_PATH) throw new Error('setup:worktree returned no worktree path — refusing to fall back to the user\'s checkout')
+// baseSha anchors every parallel chain (`git worktree add -b <chain> ${baseSha}`) and the
+// integration cherry-pick ranges, so an absent one would silently corrupt those commands.
+if (!branch || !baseSha) throw new Error(`setup:worktree returned an incomplete result (branch=${JSON.stringify(branch)}, headSha=${JSON.stringify(baseSha)}) — cannot anchor milestone chains`)
+// Everything past this point works in the worktree, so every later prompt must say so.
+REPO_CONTEXT = repoContext(WORKTREE_PATH)
+log(`Worktree ready: ${WORKTREE_PATH} on ${branch} at ${baseSha}, cut from origin/${branchResult.baseBranch || BASE_BRANCH || 'default'}`)
+if (ALLOW_DIRTY_TREE && branchResult.dirtyPaths?.length) {
+  log(`Note: the checkout has uncommitted changes left untouched, so they are NOT part of ${branch}: ${branchResult.dirtyPaths.join(', ')}`)
+}
 
 phase('Plan')
 const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan of cohesive, preferably vertical milestones to implement it, per the supervised-forge skill. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent; when in doubt use independent=false. Do not post the plan to the issue. Return the milestone list only — do not implement anything yet.
@@ -217,7 +268,7 @@ if (plan === null) throw new Error('plan agent failed — no milestones to imple
 const { milestones } = plan
 log(`Plan: ${milestones.length} milestone(s) — ${milestones.map(m => `${m.title}${m.needsReviewGate ? '' : ' (no gate)'}${m.independent ? ' (independent)' : ''}`).join(', ')}`)
 
-// Serial milestone: implement and gate directly on the branch in the main checkout.
+// Serial milestone: implement and gate directly on the branch in the run's worktree.
 async function runSerialMilestone(tag, milestone, total) {
   const impl = await agent(`On branch ${branch}, implement milestone ${tag}/${total}: "${milestone.title}".
 
@@ -252,7 +303,7 @@ ${impl.validationOutput}`,
 // commits are cherry-picked onto the branch by the integration agent afterwards.
 async function runParallelMilestone(tag, milestone, total) {
   const chainBranch = `sf/issue-${ISSUE_NUMBER}/${tag}`
-  const impl = await agent(`Implement milestone ${tag}/${total}: "${milestone.title}" for issue #${ISSUE_NUMBER}. Other milestones are being implemented in parallel, so do not touch branch ${branch} or the main checkout's working tree: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if that fails because a stale worktree still has it checked out, find it with \`git worktree list\`, \`git worktree remove --force\` it, then delete the branch). If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
+  const impl = await agent(`Implement milestone ${tag}/${total}: "${milestone.title}" for issue #${ISSUE_NUMBER}. Other milestones are being implemented in parallel, so do not touch branch ${branch} or this run's worktree at ${WORKTREE_PATH}: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if that fails because a stale worktree still has it checked out, find it with \`git worktree list\`, \`git worktree remove --force\` it, then delete the branch). If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
 
 ${REPO_CONTEXT}
 
@@ -267,13 +318,13 @@ Implement it as the sole author -- the smallest complete change for this milesto
     const gate = await runReviewGate(
       tag,
       `milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch} (parallel chain for issue #${ISSUE_NUMBER})`,
-      `The chain's commits live on branch ${chainBranch}, based on ${baseSha}. Inspect them read-only from the main checkout (e.g. git log/diff ${baseSha}..${chainBranch}) — do not check that branch out.
+      `The chain's commits live on branch ${chainBranch}, based on ${baseSha}. Inspect them read-only from the run's worktree at ${WORKTREE_PATH} (e.g. git log/diff ${baseSha}..${chainBranch}) — do not check that branch out.
 
 Milestone description: ${milestone.description}
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
-      `Resolve these independent-reviewer findings for milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch}. Other milestones are being implemented in parallel, so do not touch the main checkout's working tree: run \`git worktree add <fresh temp dir> ${chainBranch}\` (if that fails because ${chainBranch} is checked out in a stale worktree from an earlier failed attempt, \`git worktree list\` and \`git worktree remove --force\` the stale one first; on a git lock error, another parallel agent is mid-operation — wait a moment and retry), do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`,
+      `Resolve these independent-reviewer findings for milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch}. Other milestones are being implemented in parallel, so do not touch this run's worktree at ${WORKTREE_PATH}: run \`git worktree add <fresh temp dir> ${chainBranch}\` (if that fails because ${chainBranch} is checked out in a stale worktree from an earlier failed attempt, \`git worktree list\` and \`git worktree remove --force\` the stale one first; on a git lock error, another parallel agent is mid-operation — wait a moment and retry), do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`,
     )
     log(`${tag}: review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} after ${gate.fixRounds} fix round(s)`)
   } else {
@@ -296,7 +347,7 @@ if (runInParallel) {
   const chains = await parallel(parallelEntries.map(entry => () => runParallelMilestone(entry.tag, entry.milestone, milestones.length)))
   if (chains.some(chain => chain === null)) throw new Error('A parallel milestone chain failed')
 
-  const integrated = await agent(`On branch ${branch} (the main checkout), integrate these parallel milestone chains by cherry-picking each chain's range onto ${branch}, in the order listed:
+  const integrated = await agent(`On branch ${branch} (checked out in the run's worktree at ${WORKTREE_PATH}), integrate these parallel milestone chains by cherry-picking each chain's range onto ${branch}, in the order listed:
 ${chains.map(chain => `- ${chain.tag} "${chain.milestone.title}": git cherry-pick ${baseSha}..${chain.chainBranch}`).join('\n')}
 
 ${REPO_CONTEXT}
@@ -368,8 +419,30 @@ ${REPO_CONTEXT}`,
 if (shipped === null) throw new Error('ship:pr agent failed — branch is implemented but no PR was opened')
 log(`PR #${shipped.prNumber} opened: ${shipped.url}`)
 
+// Teardown runs only here, on the success path, and only after the branch is pushed — the commits
+// live on the remote by now, so removing the worktree loses nothing. Deliberately NOT in a
+// finally/catch: on failure the worktree is the only copy of the run's work, so it stays put and
+// its path is reported for triage.
+const cleaned = await agent(`Run \`git worktree remove --force ${WORKTREE_PATH}\` from the checkout at ${REPO_PATH || 'the repository root'}. The branch ${branch} and its commits must survive — only the worktree directory goes away. Do not delete the branch. Do not check out, reset, or otherwise modify the checkout you run this from. Report whether the removal succeeded.
+
+${repoContext(REPO_PATH)}`,
+  {
+    label: 'ship:cleanup',
+    schema: { type: 'object', properties: { removed: { type: 'boolean' }, detail: { type: 'string' } }, required: ['removed'] },
+    model: 'haiku',
+    effort: 'low',
+  })
+// A stranded worktree is untidy, not a failed run: the PR is already open. Surface the path so it
+// can be cleaned up by hand rather than failing a run whose actual work succeeded.
+if (cleaned === null || !cleaned.removed) {
+  log(`Worktree at ${WORKTREE_PATH} could not be removed — remove it manually with \`git worktree remove --force ${WORKTREE_PATH}\`${cleaned?.detail ? ` (${cleaned.detail})` : ''}`)
+} else {
+  log(`Worktree removed: ${WORKTREE_PATH} (branch ${branch} untouched)`)
+}
+
 return {
   branch,
+  worktreePath: cleaned?.removed ? null : WORKTREE_PATH,
   prNumber: shipped.prNumber,
   prUrl: shipped.url,
   testsPassed: finalTests.passed,
