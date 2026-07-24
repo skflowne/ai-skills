@@ -11,13 +11,17 @@ export const meta = {
 // workflow(), and a nested workflow's agents always report under their own "▸ <child-name>"
 // group in /workflows — never under a phase label declared in the parent. A parent-level phase
 // wrapping only workflow() calls would just be a permanently-empty category.
-const implemented = await workflow('skills:fast-implement', { issueNumber: args.issueNumber })
+
+// Some harnesses hand `args` through as a JSON-encoded string rather than the parsed object.
+const ARGS = typeof args === 'string' ? JSON.parse(args) : args
+
+const implemented = await workflow('skills:fast-implement', { issueNumber: ARGS.issueNumber })
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
 const reviewed = await workflow('skills:review-fix-loop', {
   prNumber: implemented.prNumber,
-  repoSlug: args.repoSlug,
-  repoPath: args.repoPath,
+  repoSlug: ARGS.repoSlug,
+  repoPath: ARGS.repoPath,
 })
 
 return {
