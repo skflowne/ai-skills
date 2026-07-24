@@ -31,6 +31,11 @@ const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
   : ''
 
 const MAX_ROUNDS = 4
+// A Workflow agent() call can't spawn a further subagent of its own, so a single agent told to
+// "follow the supervised-forge skill" (which requires spawning and consulting a persistent
+// reviewer) silently degrades to self-review. Fix rounds instead drive the milestone/review-gate
+// loop from this script directly, dispatching a genuinely separate, independent agent() per gate.
+const MAX_FIX_ROUNDS_PER_GATE = 2
 const PR_REPORTING = ARGS.prReporting !== false
 const REPORT_MARKER = '<!-- review-lite-workflow-report -->'
 const REPORT_RUN_ID = `review-lite-pr${PR_NUMBER}`
@@ -98,30 +103,80 @@ const REMOTE_HEAD_SCHEMA = {
   required: ['headSha'],
 }
 
-const COMMIT_ITEM_SCHEMA = {
+const BRANCH_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { branch: { type: 'string', minLength: 1 } },
+  required: ['branch'],
+}
+
+const GROUP_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    sha: { type: 'string', minLength: 1 },
-    title: { type: 'string', minLength: 1 },
+    milestones: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string', minLength: 1 },
+          findings: { type: 'array', minItems: 1, items: FINDING_ITEM_SCHEMA },
+        },
+        required: ['title', 'findings'],
+      },
+    },
   },
-  required: ['sha', 'title'],
+  required: ['milestones'],
 }
 
-const FIX_RESULT_SCHEMA = {
+const IMPLEMENT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    commitSha: { type: 'string', minLength: 1 },
+    summary: { type: 'string' },
+    validationOutput: { type: 'string' },
+  },
+  required: ['commitSha', 'summary', 'validationOutput'],
+}
+
+const FIX_COMMIT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { commitSha: { type: 'string', minLength: 1 } },
+  required: ['commitSha'],
+}
+
+const FIX_REVIEW_FINDING_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
+    file: { type: 'string' },
+    description: { type: 'string' },
+  },
+  required: ['severity', 'description'],
+}
+
+const FIX_REVIEW_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { findings: { type: 'array', items: FIX_REVIEW_FINDING_SCHEMA } },
+  required: ['findings'],
+}
+
+const PUSH_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     success: { type: 'boolean' },
-    beforeHeadSha: { type: 'string' },
-    afterHeadSha: { type: 'string' },
-    pushed: { type: 'boolean' },
+    headSha: { type: 'string' },
     checksPassed: { type: 'boolean' },
-    resolvedFindingCount: { type: 'number' },
-    commits: { type: 'array', items: COMMIT_ITEM_SCHEMA },
     summary: { type: 'string' },
   },
-  required: ['success', 'beforeHeadSha', 'afterHeadSha', 'pushed', 'checksPassed', 'resolvedFindingCount', 'commits', 'summary'],
+  required: ['success', 'headSha', 'checksPassed', 'summary'],
 }
 
 const FIX_VERIFICATION_SCHEMA = {
@@ -395,6 +450,56 @@ ${JSON.stringify(judged.findings, null, 2)}`, { label: `r${reviewRound}:post` })
   log(`Round ${reviewRound}: review posted to PR #${PR_NUMBER}`)
 }
 
+function actionableFix(findings) {
+  return findings.filter(finding => finding.severity !== 'nit')
+}
+
+async function requestFixReview(label, subject, context) {
+  const review = await agent(`Act as an independent correctness reviewer verifying a fix for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this fix and have no prior context beyond this message. Inspect the actual commit(s) on the branch yourself — do not trust the implementer's own description of what changed. Confirm the original findings are genuinely resolved and no regression was introduced. Report concrete findings with evidence and exact file references; return no findings if it's clean.
+
+${context}`, {
+    label: `${label}:review`,
+    model: 'opus',
+    schema: FIX_REVIEW_SCHEMA,
+    agentType: 'general-purpose',
+  })
+  if (review === null) throw new Error(`${label}: fix-verification review failed`)
+  return review.findings
+}
+
+// A Workflow agent() call can't spawn a further subagent, so a single agent told to "resolve and
+// verify per the supervised-forge skill" can't actually run the skill's persistent-reviewer
+// mechanic. This dispatches a genuinely separate, independent agent() for each review pass instead.
+async function runFixReviewGate(branch, label, subject, context, fixPromptPrefix) {
+  let findings = actionableFix(await requestFixReview(label, subject, context))
+  const fixed = []
+  const fixCommits = []
+  let round = 0
+  while (findings.length && round < MAX_FIX_ROUNDS_PER_GATE) {
+    round++
+    const fix = await agent(`${fixPromptPrefix}
+
+${REPO_CONTEXT}
+
+Findings to resolve:
+${JSON.stringify(findings, null, 2)}
+
+Rerun the relevant validation and commit your fixes with a message starting "${label} fix r${round}:". Return the commit sha.`, {
+      label: `${label}:fix:r${round}`,
+      schema: FIX_COMMIT_SCHEMA,
+      agentType: 'general-purpose',
+    })
+    if (fix === null) throw new Error(`${label}: fix round ${round} failed`)
+    fixCommits.push(fix.commitSha)
+    fixed.push(...findings)
+    findings = actionableFix(await requestFixReview(`${label}:r${round}`, subject, context))
+  }
+  if (findings.length) {
+    log(`${subject}: ${findings.length} finding(s) still open after ${round} fix round(s) — proceeding with residual risk`)
+  }
+  return { fixed, openFindings: findings, fixCommits }
+}
+
 async function runFix(round, findings) {
   const beforeFix = await agent(`Fetch PR #${PR_NUMBER} from GitHub and return its current remote head commit SHA. Do not use a local branch SHA.
 
@@ -407,57 +512,96 @@ ${REPO_CONTEXT}`, {
   return withPhaseScout(`Fix round ${round}`, async () => {
     phase('Fix')
     log(`Round ${round}: dispatching fixes for ${findings.length} finding(s) from ${beforeFix.headSha}`)
-    const fixResult = await agent(`Follow the supervised-forge skill to resolve and verify these review findings on PR #${PR_NUMBER}'s branch. You are the sole implementer for this fix round, paired with one persistent correctness reviewer per the skill.
+
+    const checkout = await agent(`Check out PR #${PR_NUMBER}'s branch locally (fetch first) and confirm its remote head is exactly ${beforeFix.headSha}. Do not edit or commit anything. Return the branch name.
+
+${REPO_CONTEXT}`, {
+      label: `r${round}:fix:checkout`,
+      schema: BRANCH_SCHEMA,
+      agentType: 'general-purpose',
+    })
+    if (checkout === null || !checkout.branch) throw new Error(`Round ${round}: could not check out PR #${PR_NUMBER}'s branch at the expected head ${beforeFix.headSha}`)
+    const branch = checkout.branch
+
+    const grouped = await agent(`Group these PR #${PR_NUMBER} review findings into cohesive fix milestones — batch findings touching the same area/file/concern together, keep unrelated concerns separate. Return each milestone's exact findings unchanged (do not drop or reword them); do not implement anything yet.
 
 ${REPO_CONTEXT}
 
-The remote PR head before this fix round is ${beforeFix.headSha}.
-
-Requirements:
-- Check out the actual PR branch and confirm its remote head before editing.
-- Group the findings into cohesive milestones and put a review gate on each; do not batch every finding into one unreviewed change.
-- Resolve and re-review every reviewer finding before moving to the next milestone, per the skill's continuous execution contract.
-- Run relevant tests, typecheck, lint, and project checks.
-- Commit and push fixes to the PR branch.
-- Query GitHub after pushing and confirm the remote head equals the pushed commit.
-- Return every commit created during this fix round as { sha, title }.
-- success=true only when all findings are resolved, checks pass, and the remote head changed from ${beforeFix.headSha}.
-- Return only the requested compact structured result.
-
-Findings to fix:
+Findings:
 ${JSON.stringify(findings, null, 2)}`, {
-      label: `r${round}:fix:orchestrator`,
-      schema: FIX_RESULT_SCHEMA,
+      label: `r${round}:fix:group`,
+      schema: GROUP_SCHEMA,
     })
+    if (grouped === null || !grouped.milestones.length) throw new Error(`Round ${round}: could not group findings into fix milestones`)
+    log(`Round ${round}: grouped into ${grouped.milestones.length} fix milestone(s)`)
 
-    if (fixResult === null) throw new Error(`Round ${round}: fix orchestrator failed; refusing to start another review round`)
-    if (fixResult.beforeHeadSha !== beforeFix.headSha) throw new Error(`Round ${round}: fix orchestrator worked from unexpected head ${fixResult.beforeHeadSha}; expected ${beforeFix.headSha}`)
-    if (!fixResult.success || !fixResult.pushed || !fixResult.checksPassed) throw new Error(`Round ${round}: fix orchestrator did not verify a successful push: ${fixResult.summary}`)
-    if (!fixResult.afterHeadSha || fixResult.afterHeadSha === beforeFix.headSha) throw new Error(`Round ${round}: remote PR head did not change after the fix round`)
-    if (fixResult.resolvedFindingCount !== findings.length) throw new Error(`Round ${round}: fix orchestrator resolved ${fixResult.resolvedFindingCount}/${findings.length} findings`)
-    if (!fixResult.commits.length) throw new Error(`Round ${round}: fix orchestrator returned no commits for a changed remote head`)
+    const commits = []
+    const stillOpen = []
+    for (const [index, milestone] of grouped.milestones.entries()) {
+      const tag = `r${round}.${index + 1}`
+      const impl = await agent(`On branch ${branch} (PR #${PR_NUMBER}), resolve this review milestone "${milestone.title}".
 
-    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${fixResult.afterHeadSha}, differs from ${beforeFix.headSha}, belongs to PR #${PR_NUMBER}, and that these commits exactly describe the pushed range:
-${JSON.stringify(fixResult.commits, null, 2)}
+${REPO_CONTEXT}
+
+Findings to resolve:
+${JSON.stringify(milestone.findings, null, 2)}
+
+Run the relevant tests, lint, typecheck, and other validation. Commit your work with a message starting "Fix ${tag}: ${milestone.title}". Return the commit sha, a concise summary, and the raw validation command output.`, {
+        label: `${tag}:implement`,
+        schema: IMPLEMENT_SCHEMA,
+        agentType: 'general-purpose',
+      })
+      if (impl === null) throw new Error(`Round ${round}: fix milestone ${tag} implementation failed`)
+      commits.push({ sha: impl.commitSha, title: `Fix ${tag}: ${milestone.title}` })
+
+      const gate = await runFixReviewGate(branch, tag,
+        `fix milestone ${tag} ("${milestone.title}") on PR #${PR_NUMBER} branch ${branch}, commit ${impl.commitSha}`,
+        `Original findings this milestone was meant to resolve:
+${JSON.stringify(milestone.findings, null, 2)}
+
+Raw validation output from the implementer:
+${impl.validationOutput}`,
+        `On branch ${branch}, resolve these findings for fix milestone "${milestone.title}" (PR #${PR_NUMBER}).`)
+      for (const sha of gate.fixCommits) commits.push({ sha, title: `Fix ${tag} follow-up: ${milestone.title}` })
+      if (gate.openFindings.length) stillOpen.push(...gate.openFindings)
+      log(`${tag}: fix review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} (${gate.fixed.length} fixed)`)
+    }
+
+    if (stillOpen.length) {
+      log(`Round ${round}: ${stillOpen.length} finding(s) still open after all fix milestones — pushing regardless; they'll resurface in the next review round`)
+    }
+
+    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${beforeFix.headSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
+
+${REPO_CONTEXT}`, {
+      label: `r${round}:fix:push`,
+      schema: PUSH_SCHEMA,
+    })
+    if (pushResult === null || !pushResult.success || !pushResult.headSha || pushResult.headSha === beforeFix.headSha) {
+      throw new Error(`Round ${round}: push did not verify a changed remote head: ${pushResult ? pushResult.summary : 'push agent failed'}`)
+    }
+
+    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${beforeFix.headSha}, belongs to PR #${PR_NUMBER}, and that these commits exactly describe the pushed range:
+${JSON.stringify(commits, null, 2)}
 Return verified=false on any mismatch.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:verify-remote`,
       schema: FIX_VERIFICATION_SCHEMA,
     })
-    if (fixVerification === null || !fixVerification.verified || fixVerification.headSha !== fixResult.afterHeadSha) {
+    if (fixVerification === null || !fixVerification.verified || fixVerification.headSha !== pushResult.headSha) {
       throw new Error(`Round ${round}: independent remote verification failed; refusing to start another review round`)
     }
 
-    report.commits = [...new Map([...report.commits, ...fixResult.commits].map(commit => [commit.sha, commit])).values()]
-    report.checksPassed = fixResult.checksPassed
-    report.finalSha = fixResult.afterHeadSha
-    report.findingsStatus = 'fixed'
+    report.commits = [...new Map([...report.commits, ...commits].map(commit => [commit.sha, commit])).values()]
+    report.checksPassed = pushResult.checksPassed
+    report.finalSha = pushResult.headSha
+    report.findingsStatus = stillOpen.length ? 'partially-fixed' : 'fixed'
     report.lastMilestone = 'Fix verified'
     report.status = `Round ${round}: fix verified`
     await updateReport(`round ${round} fix verified`)
-    log(`Round ${round}: verified fixes committed and pushed at ${fixResult.afterHeadSha}`)
-    return fixResult
+    log(`Round ${round}: verified fixes committed and pushed at ${pushResult.headSha}`)
+    return { afterHeadSha: pushResult.headSha, commits, openFindings: stillOpen }
   })
 }
 
