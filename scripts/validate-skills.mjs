@@ -355,8 +355,10 @@ for (const filePath of workflowFiles) {
 validateManifest();
 
 // Deterministic output: group by path, keeping each file's problems in the
-// order they were found.
-problems.sort((a, b) => a.path.localeCompare(b.path) || a.order - b.order);
+// order they were found. The path comparison is a plain codepoint comparison
+// (not localeCompare) so ordering matches discovery order and does not depend
+// on the runtime locale or ICU build.
+problems.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.order - b.order));
 
 // The summary and final status always go to stdout; problems always to stderr.
 console.log(
@@ -369,7 +371,10 @@ for (const problem of problems) {
 
 if (problems.length > 0) {
     console.log(`FAIL: ${plural(problems.length, "problem")} found.`);
-    process.exit(1);
+    // Set exitCode rather than calling process.exit(1): writes to piped
+    // stdout/stderr are async on POSIX and process.exit() would drop any
+    // still-queued output, truncating the problem list.
+    process.exitCode = 1;
+} else {
+    console.log("OK: all checks passed.");
 }
-
-console.log("OK: all checks passed.");
