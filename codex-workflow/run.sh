@@ -3,9 +3,9 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run.sh <issue-to-pr|implement|fast-implement|fast-issue-to-pr|review|review-lite> <issue-or-pr-number> [openai|kimi] [repository-path] [options]
+Usage: run.sh <issue-to-pr|implement|fast-implement|fast-issue-to-pr|review|review-supervised> <issue-or-pr-number> [openai|kimi] [repository-path] [options]
 
-Review-lite options:
+Review-supervised options:
   --no-pr-reporting           Disable the persistent PR workflow report and progress scout
 EOF
   exit 2
@@ -49,8 +49,8 @@ done
   exit 2
 }
 
-if [[ $mode != review-lite && $pr_reporting_option_seen == true ]]; then
-  echo "error: PR reporting options are only valid with review-lite" >&2
+if [[ $mode != review-supervised && $mode != review-lite && $pr_reporting_option_seen == true ]]; then
+  echo "error: PR reporting options are only valid with review-supervised" >&2
   exit 2
 fi
 
@@ -79,8 +79,8 @@ case "$mode" in
     workflow="$workflow_dir/review-fix-loop.js"
     args="{\"prNumber\":$number}"
     ;;
-  review-lite)
-    workflow="$workflow_dir/review-fix-loop-lite.js"
+  review-supervised|review-lite) # review-lite: pre-rename alias
+    workflow="$workflow_dir/review-supervised.js"
     args="{\"prNumber\":$number,\"prReporting\":$pr_reporting}"
     ;;
   *) usage ;;

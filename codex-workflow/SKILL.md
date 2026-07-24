@@ -25,11 +25,11 @@ Modes:
 - `fast-implement` — implement the issue with the TDD Forge process and open a PR
 - `fast-issue-to-pr` — run `fast-implement`, then run the review/fix loop
 - `review` — run the full council + YOLO review/fix loop on an existing PR
-- `review-lite` — run the lightweight YOLO-only review/fix loop, using the `supervised-forge` skill for fixes
+- `review-supervised` — run the lightweight YOLO-only review/fix loop, using the `supervised-forge` skill for fixes (`review-lite` still works as a pre-rename alias)
 
 The backend defaults to `openai`. The repository defaults to Pi's current working directory.
 
-Review-lite maintains one persistent PR workflow-report comment and runs a read-only progress scout back-to-back with each review and fix phase. Meaningful milestones update the comment immediately. Options:
+Review-supervised maintains one persistent PR workflow-report comment and runs a read-only progress scout back-to-back with each review and fix phase. Meaningful milestones update the comment immediately. Options:
 
 - `--no-pr-reporting` — disable the PR report and progress scout
 
@@ -65,6 +65,6 @@ failures. If interrupted, report the run ID and the corresponding `codex-workflo
 /skill:codex-workflow fast-implement 123
 /skill:codex-workflow fast-issue-to-pr 123
 /skill:codex-workflow review 456 openai
-/skill:codex-workflow review-lite 456 kimi
-/skill:codex-workflow review-lite 456 kimi --no-pr-reporting
+/skill:codex-workflow review-supervised 456 kimi
+/skill:codex-workflow review-supervised 456 kimi --no-pr-reporting
 ```

@@ -14,16 +14,26 @@ export const meta = {
 // wrapping only workflow() calls would just be a permanently-empty category.
 
 // Some harnesses hand `args` through as a JSON-encoded string rather than the parsed object.
-const ARGS = typeof args === 'string' ? JSON.parse(args) : args
+const ARGS = typeof args === 'string'
+  ? (() => { try { return JSON.parse(args) } catch { throw new Error('args arrived as a string that is not valid JSON') } })()
+  : args
+if (ARGS == null || typeof ARGS !== 'object') throw new Error('args must be an object like { issueNumber: 123 }')
 
-const implemented = await workflow('skills:supervised-forge-implement', { issueNumber: ARGS.issueNumber })
+// repoSlug/repoPath go to both children: without them every agent resolves the repo from cwd's
+// default remote, and implementing in one checkout while reviewing another would be the worst
+// possible split. Both children validate issueNumber/prNumber strictly themselves.
+const implemented = await workflow('skills:supervised-implement', {
+  issueNumber: ARGS.issueNumber,
+  repoSlug: ARGS.repoSlug,
+  repoPath: ARGS.repoPath,
+})
 log(`Implementation done — PR #${implemented.prNumber} opened (${implemented.prUrl})`)
 
 if (!implemented.testsPassed) {
   log(`Warning: tests were not green going into the review loop — ${implemented.testSummary}`)
 }
 
-const reviewed = await workflow('skills:review-fix-loop-lite', {
+const reviewed = await workflow('skills:review-supervised', {
   prNumber: implemented.prNumber,
   repoSlug: ARGS.repoSlug,
   repoPath: ARGS.repoPath,
@@ -31,7 +41,10 @@ const reviewed = await workflow('skills:review-fix-loop-lite', {
 
 return {
   ...implemented,
+  // The implement child's finish-gate residuals stay visible under their own key; openFindings is
+  // the review loop's final verdict, which supersedes them as the branch's current state.
+  implementOpenFindings: implemented.openFindings,
+  openFindings: reviewed.openFindings,
   reviewRounds: reviewed.rounds,
   reviewDone: reviewed.done,
-  openFindings: reviewed.openFindings,
 }

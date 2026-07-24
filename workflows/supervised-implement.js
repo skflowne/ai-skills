@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'supervised-forge-implement',
+  name: 'supervised-implement',
   description: 'Implement a GitHub issue end to end with Supervised Forge (script-driven milestone review gates) and open a PR',
   phases: [
     { title: 'Setup' },
@@ -15,6 +15,15 @@ const ARGS = typeof args === 'string'
   ? (() => { try { return JSON.parse(args) } catch { throw new Error('args arrived as a string that is not valid JSON') } })()
   : args
 if (ARGS == null || typeof ARGS !== 'object') throw new Error('args must be an object like { issueNumber: 123 }')
+// repoSlug/repoPath (optional) thread explicit repo context into every prompt — without them,
+// agents resolve the issue and repo from cwd's default remote, which is ambiguous across multiple
+// checkouts. Same contract as review-supervised, so issue-to-pr can thread them to both children.
+const REPO_SLUG = ARGS.repoSlug
+const REPO_PATH = ARGS.repoPath
+const REPO_CONTEXT = (REPO_SLUG || REPO_PATH)
+  ? `Repo context: ${REPO_PATH ? `local checkout at ${REPO_PATH} (cd there for git operations)` : ''}${REPO_PATH && REPO_SLUG ? ', ' : ''}${REPO_SLUG ? `GitHub repo ${REPO_SLUG} (pass --repo ${REPO_SLUG} to every gh subcommand that accepts it — do not rely on cwd's default remote). \`gh api\` has no --repo flag and resolves the {owner}/{repo} placeholders from the cwd's remote, so spell the repo out in the path instead: repos/${REPO_SLUG}/...` : ''}.`
+  : ''
+const GH_REPO_FLAG = REPO_SLUG ? ` --repo ${REPO_SLUG}` : ''
 // Exact integer, or an all-digits string from a harness that stringifies numbers. Anything else
 // fails here — no agent gets to guess which issue was meant.
 const ISSUE_NUMBER = typeof ARGS.issueNumber === 'string' && /^[0-9]+$/.test(ARGS.issueNumber) ? Number(ARGS.issueNumber) : ARGS.issueNumber
@@ -126,11 +135,13 @@ function actionable(findings) {
 
 // The review-gate and serial/parallel milestone helpers below are mirrored (with issue-implement
 // -specific contracts: milestone descriptions, no commit-sha tracking) in
-// workflows/review-fix-loop-lite.js. The sandbox has no imports and workflow() nesting is one
+// workflows/review-supervised.js. The sandbox has no imports and workflow() nesting is one
 // level deep — already spent by issue-to-pr — so the shape is duplicated deliberately; propagate
 // structural changes to the twin by hand.
 async function requestReview(label, subject, context) {
   const review = await agent(`Act as an independent correctness reviewer for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this code and have no prior context beyond this message. Inspect the actual commits/diff on the branch yourself -- do not trust the implementer's own description of what changed. Report concrete correctness, regression, and behavior findings with evidence and exact file references. Return no findings if it's clean.
+
+${REPO_CONTEXT}
 
 ${context}`,
     { label: `${label}:review`, model: 'opus', schema: FINDINGS_SCHEMA, agentType: 'general-purpose' })
@@ -146,13 +157,16 @@ async function runReviewGate(label, subject, context, fixPromptPrefix) {
   let round = 0
   while (findings.length && round < MAX_FIX_ROUNDS_PER_GATE) {
     round++
-    await agent(`${fixPromptPrefix}
+    const fix = await agent(`${fixPromptPrefix}
+
+${REPO_CONTEXT}
 
 Findings to resolve:
 ${JSON.stringify(findings)}
 
 Rerun the relevant validation and commit your fixes.`,
       { label: `${label}:fix:r${round}`, agentType: 'general-purpose' })
+    if (fix === null) throw new Error(`${label}: fix round ${round} failed`)
     findings = actionable(await requestReview(`${label}:r${round}`, subject, `${context}
 
 Fix round ${round} has since committed fixes for earlier findings on top — review the current state including those fix-up commits, not just any originally-cited commit.`))
@@ -173,7 +187,9 @@ phase('Setup')
 // the fields verbatim. All judgment stays in the script — number equality, title presence, and
 // the OPEN check below decide whether the run proceeds, so a wrong or hallucinated relay cannot
 // steer the workflow onto a different issue.
-const resolvedIssue = await agent(`Run exactly this command and relay its result: \`gh issue view ${ISSUE_NUMBER} --json number,title,state,url\`. If it succeeds, return found=true plus the number, title, state, and url fields verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered issues, try other repos or remotes, or substitute a pull request.`,
+const resolvedIssue = await agent(`Run exactly this command and relay its result: \`gh issue view ${ISSUE_NUMBER}${GH_REPO_FLAG} --json number,title,state,url\`. If it succeeds, return found=true plus the number, title, state, and url fields verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered issues, try other repos or remotes, or substitute a pull request.
+
+${REPO_CONTEXT}`,
   { label: 'setup:resolve-issue', schema: ISSUE_RESOLVE_SCHEMA, model: 'haiku', effort: 'low' })
 if (resolvedIssue === null || resolvedIssue.found !== true || resolvedIssue.number !== ISSUE_NUMBER || !resolvedIssue.title) {
   throw new Error(`Issue #${ISSUE_NUMBER} did not resolve to an exact match in this repo — stopping instead of guessing`)
@@ -184,23 +200,34 @@ if (resolvedIssue.state && resolvedIssue.state.toUpperCase() !== 'OPEN') {
 const ISSUE_PIN = `issue #${ISSUE_NUMBER} ("${resolvedIssue.title}")`
 log(`Pinned ${ISSUE_PIN}: ${resolvedIssue.url || 'no url reported'} (${resolvedIssue.state})`)
 
-const { branch, headSha: baseSha } = await agent(`Create and check out a new branch for ${ISSUE_PIN} off an up-to-date default branch (name it something like issue-${ISSUE_NUMBER}-<slug>). Do not discard any unrelated uncommitted changes already in the working tree — stash them first if present and note that you did. Return the branch name and the sha of its HEAD.`,
+const branchResult = await agent(`Create and check out a new branch for ${ISSUE_PIN} off an up-to-date default branch (name it something like issue-${ISSUE_NUMBER}-<slug>). Do not discard any unrelated uncommitted changes already in the working tree — stash them first if present and note that you did. Return the branch name and the sha of its HEAD.
+
+${REPO_CONTEXT}`,
   { label: 'setup:branch', schema: BRANCH_SCHEMA, agentType: 'general-purpose' })
+if (branchResult === null) throw new Error('setup:branch agent failed — no branch to implement on')
+const { branch, headSha: baseSha } = branchResult
 log(`Branch ready: ${branch} at ${baseSha}`)
 
 phase('Plan')
-const { milestones } = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan of cohesive, preferably vertical milestones to implement it, per the supervised-forge skill. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent; when in doubt use independent=false. Do not post the plan to the issue. Return the milestone list only — do not implement anything yet.`,
+const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan of cohesive, preferably vertical milestones to implement it, per the supervised-forge skill. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent; when in doubt use independent=false. Do not post the plan to the issue. Return the milestone list only — do not implement anything yet.
+
+${REPO_CONTEXT}`,
   { label: 'plan', model: 'opus', schema: PLAN_SCHEMA, agentType: 'general-purpose' })
+if (plan === null) throw new Error('plan agent failed — no milestones to implement')
+const { milestones } = plan
 log(`Plan: ${milestones.length} milestone(s) — ${milestones.map(m => `${m.title}${m.needsReviewGate ? '' : ' (no gate)'}${m.independent ? ' (independent)' : ''}`).join(', ')}`)
 
 // Serial milestone: implement and gate directly on the branch in the main checkout.
 async function runSerialMilestone(tag, milestone, total) {
   const impl = await agent(`On branch ${branch}, implement milestone ${tag}/${total}: "${milestone.title}".
 
+${REPO_CONTEXT}
+
 Description: ${milestone.description}
 
 Implement it as the sole author -- the smallest complete change for this milestone. Run the tests, lint, typecheck, and other validation relevant to this milestone. Commit your work with a message starting "${tag}: ${milestone.title}". Return the commit sha, a concise summary, and the raw, verbatim validation command output (commands run and their output).`,
     { label: `${tag}:implement`, schema: IMPLEMENT_SCHEMA, agentType: 'general-purpose' })
+  if (impl === null) throw new Error(`Milestone ${tag} implementation failed`)
   log(`${tag} implemented: ${impl.summary} (${impl.commitSha})`)
 
   if (!milestone.needsReviewGate) {
@@ -227,10 +254,13 @@ async function runParallelMilestone(tag, milestone, total) {
   const chainBranch = `sf/issue-${ISSUE_NUMBER}/${tag}`
   const impl = await agent(`Implement milestone ${tag}/${total}: "${milestone.title}" for issue #${ISSUE_NUMBER}. Other milestones are being implemented in parallel, so do not touch branch ${branch} or the main checkout's working tree: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if that fails because a stale worktree still has it checked out, find it with \`git worktree list\`, \`git worktree remove --force\` it, then delete the branch). If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
 
+${REPO_CONTEXT}
+
 Description: ${milestone.description}
 
 Implement it as the sole author -- the smallest complete change for this milestone. Run whatever validation is feasible inside the worktree (set up dependencies there if the project needs them); full validation runs again at integration. Commit your work with a message starting "${tag}: ${milestone.title}", then run \`git worktree remove --force <that dir>\` (the branch and its commits survive) and return the commit sha, a concise summary, and the raw, verbatim validation command output (commands run and their output).`,
     { label: `${tag}:implement`, schema: IMPLEMENT_SCHEMA, agentType: 'general-purpose' })
+  if (impl === null) throw new Error(`Milestone ${tag} implementation failed`)
   log(`${tag} implemented on ${chainBranch}: ${impl.summary} (${impl.commitSha})`)
 
   if (milestone.needsReviewGate) {
@@ -269,6 +299,8 @@ if (runInParallel) {
   const integrated = await agent(`On branch ${branch} (the main checkout), integrate these parallel milestone chains by cherry-picking each chain's range onto ${branch}, in the order listed:
 ${chains.map(chain => `- ${chain.tag} "${chain.milestone.title}": git cherry-pick ${baseSha}..${chain.chainBranch}`).join('\n')}
 
+${REPO_CONTEXT}
+
 The chains were all built from ${baseSha} against concerns the plan judged disjoint, so conflicts should be rare; resolve any that appear in the spirit of the milestone descriptions rather than aborting:
 ${chains.map(chain => `- ${chain.tag}: ${chain.milestone.description}`).join('\n')}
 
@@ -276,7 +308,7 @@ After integrating, run the project's relevant validation (tests, lint, typecheck
     // Cross-chain conflict resolution plus full validation — worth a strong tier, but not the
     // session default. (codex routes `*:integrate` to the same tier its opus alias maps to.)
     { label: 'milestones:integrate', model: 'opus', schema: INTEGRATE_SCHEMA, agentType: 'general-purpose' })
-  if (!integrated.success) throw new Error(`Parallel milestone integration failed: ${integrated.summary}`)
+  if (integrated === null || !integrated.success) throw new Error(`Parallel milestone integration failed${integrated ? `: ${integrated.summary}` : ''}`)
   log(`Integrated ${parallelEntries.length} parallel chain(s) onto ${branch}: ${integrated.summary}`)
 }
 
@@ -285,10 +317,24 @@ for (const entry of serialEntries) {
 }
 
 phase('Finish')
-const finalTests = await agent(`On branch ${branch}, run the full relevant test suite plus any required lint, typecheck, and build checks for this project (discover the correct commands from the repo, e.g. package.json scripts). If none apply (e.g. a docs/config-only repo), say so explicitly rather than fabricating a pass. Report whether everything passed and include failure details if not.`,
-  { label: 'finish:tests', schema: TEST_SCHEMA, agentType: 'general-purpose' })
+async function runFinishValidation(label) {
+  const result = await agent(`On branch ${branch}, run the full relevant test suite plus any required lint, typecheck, and build checks for this project (discover the correct commands from the repo, e.g. package.json scripts). If none apply (e.g. a docs/config-only repo), say so explicitly rather than fabricating a pass. Report whether everything passed and include failure details if not.
+
+${REPO_CONTEXT}`,
+    { label, schema: TEST_SCHEMA, agentType: 'general-purpose' })
+  if (result === null) throw new Error(`${label} agent failed — cannot establish the branch's validation state`)
+  return result
+}
+
+let finalTests = await runFinishValidation('finish:tests')
 log(`Finish validation: ${finalTests.passed ? 'passed' : 'FAILED'} — ${finalTests.summary}`)
-if (!finalTests.passed) throw new Error(`Finish validation failed: ${finalTests.failures.join('; ')}`)
+// A failed suite is residual risk, not a dead end: the final review gate sees the failures as
+// findings and its fix rounds get a shot at repairing them, mirroring how milestone gates proceed.
+// The PR then ships with testsPassed reflecting the real final state for the caller to act on
+// (issue-to-pr warns and hands the PR straight to the review-fix loop).
+if (!finalTests.passed) {
+  log(`Proceeding to the final review gate with residual risk — failures: ${finalTests.failures.join('; ')}`)
+}
 
 const finalGate = await runReviewGate(
   'finish',
@@ -296,18 +342,30 @@ const finalGate = await runReviewGate(
   `Milestones implemented: ${milestones.map(m => m.title).join(', ')}
 
 Final validation output:
-${finalTests.summary}`,
+${finalTests.summary}${finalTests.passed ? '' : `
+
+Validation FAILED — treat these failures as findings to report unless the branch state proves them resolved: ${finalTests.failures.join('; ')}`}`,
   `On branch ${branch}, resolve these final-review findings covering the complete change.`,
 )
 log(`Finish review gate: ${finalGate.openFindings.length ? `left ${finalGate.openFindings.length} open finding(s)` : 'clean'} after ${finalGate.fixRounds} fix round(s)`)
 
+// The gate's fix rounds may have repaired the failing suite — refresh the verdict so the returned
+// testsPassed describes what actually ships.
+if (!finalTests.passed && finalGate.fixRounds > 0) {
+  finalTests = await runFinishValidation('finish:tests:recheck')
+  log(`Finish validation recheck: ${finalTests.passed ? 'passed' : 'still FAILED'} — ${finalTests.summary}`)
+}
+
 phase('Ship')
-const shipped = await agent(`On branch ${branch}, push it and open a PR for ${ISSUE_PIN} (reference/close that exact issue in the PR body). If PR creation tooling is unavailable, say so explicitly instead of guessing. Return the PR number and URL.`,
+const shipped = await agent(`On branch ${branch}, push it and open a PR for ${ISSUE_PIN} (reference/close that exact issue in the PR body). If an open PR already exists for this branch (e.g. from an earlier aborted run), reuse it — return its number and URL instead of creating a duplicate. If PR creation tooling is unavailable, say so explicitly instead of guessing. Return the PR number and URL.
+
+${REPO_CONTEXT}`,
   {
     label: 'ship:pr',
     schema: { type: 'object', properties: { prNumber: { type: 'number' }, url: { type: 'string' } }, required: ['prNumber', 'url'] },
     agentType: 'general-purpose',
   })
+if (shipped === null) throw new Error('ship:pr agent failed — branch is implemented but no PR was opened')
 log(`PR #${shipped.prNumber} opened: ${shipped.url}`)
 
 return {

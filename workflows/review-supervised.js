@@ -1,6 +1,6 @@
 // Lightweight YOLO-only review/fix loop with persistent PR reporting.
 // Claude Code: run as a dynamic workflow. codex-dynamic-workflows:
-//   codex-workflow run workflows/review-fix-loop-lite.js --config workflows-codex/codex-workflow.config.ts
+//   codex-workflow run workflows/review-supervised.js --config workflows-codex/codex-workflow.config.ts
 //
 // Written to the portable primitive subset both harnesses share — no imports, Date.now(), or
 // Math.random() (Claude's workflow sandbox blocks them). All GitHub I/O, including rendering and
@@ -28,7 +28,7 @@
 // and the checkout/push/verification agents cross-check that pin instead of re-resolving.
 
 export const meta = {
-  name: 'review-fix-loop-lite',
+  name: 'review-supervised',
   description: 'Loop a tailored yolo-council-review, judge findings, and orchestrate fixes until only nits remain (max 4 rounds)',
   phases: [
     { title: 'Review' },
@@ -67,8 +67,11 @@ const MAX_ROUNDS = 4
 // loop from this script directly, dispatching a genuinely separate, independent agent() per gate.
 const MAX_FIX_ROUNDS_PER_GATE = 2
 const PR_REPORTING = ARGS.prReporting !== false
+// The marker keeps its pre-rename value on purpose: it is how the report agent finds the existing
+// report comment on a PR, so changing it would orphan comments posted by earlier runs and create a
+// duplicate report instead of editing the old one in place.
 const REPORT_MARKER = '<!-- review-lite-workflow-report -->'
-const REPORT_RUN_ID = `review-lite-pr${PR_NUMBER}`
+const REPORT_RUN_ID = `review-supervised-pr${PR_NUMBER}`
 
 const FINDING_ITEM_SCHEMA = {
   type: 'object',
@@ -230,10 +233,13 @@ const PUSH_SCHEMA = {
   properties: {
     success: { type: 'boolean' },
     headSha: { type: 'string' },
-    checksPassed: { type: 'boolean' },
+    // Tri-state, not boolean: the push agent reports immediately after pushing, when CI has
+    // usually only just been queued — forcing true/false there would report "not passing" for
+    // checks that merely haven't finished.
+    checksStatus: { type: 'string', enum: ['passed', 'failed', 'pending'] },
     summary: { type: 'string' },
   },
-  required: ['success', 'headSha', 'checksPassed', 'summary'],
+  required: ['success', 'headSha', 'checksStatus', 'summary'],
 }
 
 const FIX_VERIFICATION_SCHEMA = {
@@ -283,7 +289,7 @@ const report = {
   findings: [],
   findingsStatus: 'pending',
   commits: [],
-  checksPassed: null,
+  checksStatus: null,
   scoutUpdates: [],
   failure: '',
 }
@@ -338,13 +344,13 @@ function renderReportBody() {
   return [
     REPORT_MARKER,
     '',
-    '## Review-lite workflow report',
+    '## Review-supervised workflow report',
     '',
     // Bullets, not bare lines: GitHub joins consecutive plain lines into one paragraph.
     `- **Status:** ${report.status}`,
     `- **Phase:** ${report.currentPhase} · **Last milestone:** ${report.lastMilestone}`,
     `- **Head:** ${report.startingSha || '_unknown_'} → ${report.finalSha || '_no verified fix yet_'}`,
-    report.checksPassed === null ? null : `- **Checks:** ${report.checksPassed ? 'passed' : 'not passing'}`,
+    report.checksStatus === null ? null : `- **Checks:** ${{ passed: 'passed', failed: 'not passing', pending: 'pending' }[report.checksStatus] || report.checksStatus}`,
     report.failure ? `- **Failure:** ${truncate(report.failure, 1000)}` : null,
     '',
     `### Panel`,
@@ -377,17 +383,17 @@ The body is already rendered below. Post it verbatim — do not summarize, reord
 
 Steps:
 
-1. Write the body to a scratch file, e.g. /tmp/review-lite-report-${PR_NUMBER}.md. Use a heredoc quoted as <<'MARKDOWN' so the shell expands nothing inside it.
+1. Write the body to a scratch file, e.g. /tmp/review-supervised-report-${PR_NUMBER}.md. Use a heredoc quoted as <<'MARKDOWN' so the shell expands nothing inside it.
 ${reportCommentId
   ? `2. Edit comment id ${reportCommentId} in place:
-   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/${reportCommentId} -F body=@/tmp/review-lite-report-${PR_NUMBER}.md\`
+   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/${reportCommentId} -F body=@/tmp/review-supervised-report-${PR_NUMBER}.md\`
    Do not list the PR's comments and do not create a new one — that id is known to be correct.`
   : `2. Find the existing report comment:
    \`gh api --paginate ${GH_API_REPO}/issues/${PR_NUMBER}/comments --jq '.[] | select(.body | contains("${REPORT_MARKER}")) | .id'\`
    If that prints an id, edit it in place:
-   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/<id> -F body=@/tmp/review-lite-report-${PR_NUMBER}.md\`
+   \`gh api -X PATCH ${GH_API_REPO}/issues/comments/<id> -F body=@/tmp/review-supervised-report-${PR_NUMBER}.md\`
    If it prints nothing, create the comment:
-   \`gh pr comment ${PR_NUMBER}${GH_REPO_FLAG} --body-file /tmp/review-lite-report-${PR_NUMBER}.md\`
+   \`gh pr comment ${PR_NUMBER}${GH_REPO_FLAG} --body-file /tmp/review-supervised-report-${PR_NUMBER}.md\`
    Then re-run the lookup to get its id. There is exactly one report comment for the whole run.`}
 3. Verify: \`gh api ${GH_API_REPO}/issues/comments/<id> --jq '.body' | head -1\` must print the marker line, not a file path.
 
@@ -451,7 +457,7 @@ async function runScoutPass(phaseName, tick, isSettled) {
 ${report.findings.length ? report.findings.map(finding => `- [${finding.severity}] ${finding.file ? `${finding.file}: ` : ''}${truncate(finding.description, MAX_DESCRIPTION_CHARS)}`).join('\n') : '- none'}`
     : `Actionable findings currently being addressed: ${report.findings.length}.`
 
-  const result = await agent(`Act as a read-only progress scout for review-lite PR #${PR_NUMBER}. This is progress report ${tick} during ${phaseName}.
+  const result = await agent(`Act as a read-only progress scout for review-supervised PR #${PR_NUMBER}. This is progress report ${tick} during ${phaseName}.
 
 ${REPO_CONTEXT}
 
@@ -683,7 +689,7 @@ function actionableFix(findings) {
 
 // The review-gate and serial/parallel milestone helpers below are mirrored (with PR-fix-specific
 // contracts: findings JSON, commit-sha tracking for push verification) in
-// workflows/supervised-forge-implement.js. The sandbox has no imports and workflow() nesting is
+// workflows/supervised-implement.js. The sandbox has no imports and workflow() nesting is
 // one level deep — already spent by issue-to-pr — so the shape is duplicated deliberately;
 // propagate structural changes to the twin by hand.
 async function requestFixReview(label, subject, context) {
@@ -885,7 +891,7 @@ After integrating, run the project's full validation (tests, lint, typecheck as 
       log(`Round ${round}: ${stillOpen.length} finding(s) still open after all fix milestones — pushing regardless; they'll resurface in the next review round`)
     }
 
-    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. If gh reports PR #${PR_NUMBER} missing or its head branch as anything other than ${branch}, return success=false without pushing anywhere else. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${baseSha}. Return success, the pushed head sha, and whether checks (lint/typecheck/tests/CI as applicable) passed.
+    const pushResult = await agent(`On branch ${branch} (PR #${PR_NUMBER}), push the branch to the remote. If gh reports PR #${PR_NUMBER} missing or its head branch as anything other than ${branch}, return success=false without pushing anywhere else. Query GitHub afterward and confirm the remote head equals your local HEAD and differs from ${baseSha}. Return success, the pushed head sha, and checksStatus: "passed" or "failed" from the checks that have completed (lint/typecheck/tests/CI as applicable), or "pending" if checks are still queued or running — do not wait for them to finish.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:push`,
@@ -897,9 +903,9 @@ ${REPO_CONTEXT}`, {
       throw new Error(`Round ${round}: push did not verify a changed remote head: ${pushResult ? pushResult.summary : 'push agent failed'}`)
     }
 
-    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${baseSha}, belongs to PR #${PR_NUMBER} on head branch ${branch}, and that these commits exactly describe the pushed range:
+    const fixVerification = await agent(`Independently verify the pushed result for PR #${PR_NUMBER} using GitHub, not the local checkout. Confirm the current remote head is exactly ${pushResult.headSha}, differs from ${baseSha}, belongs to PR #${PR_NUMBER} on head branch ${branch}, and that the commits in the pushed range ${baseSha}..${pushResult.headSha} are exactly these shas:
 ${JSON.stringify(commits)}
-Return verified=false on any mismatch or if PR #${PR_NUMBER} cannot be fetched — never verify against a different PR or branch.
+Match on shas only — the titles listed are the script's informational approximations and may differ from the real commit subjects; a title mismatch alone is not a verification failure. Return verified=false on any sha mismatch, missing or extra commit, or if PR #${PR_NUMBER} cannot be fetched — never verify against a different PR or branch.
 
 ${REPO_CONTEXT}`, {
       label: `r${round}:fix:verify-remote`,
@@ -912,7 +918,7 @@ ${REPO_CONTEXT}`, {
     }
 
     report.commits = [...new Map([...report.commits, ...commits].map(commit => [commit.sha, commit])).values()]
-    report.checksPassed = pushResult.checksPassed
+    report.checksStatus = pushResult.checksStatus
     report.finalSha = pushResult.headSha
     report.findingsStatus = stillOpen.length ? 'partially-fixed' : 'fixed'
     report.lastMilestone = 'Fix verified'
