@@ -16,7 +16,11 @@ const KEY_LINE = /^([A-Za-z0-9_.-]+)\s*:\s?(.*)$/;
 const problems = [];
 
 function addProblem(filePath, message) {
-    problems.push(`${relative(REPO_ROOT, filePath) || filePath}: ${message}`);
+    problems.push({
+        path: relative(REPO_ROOT, filePath) || filePath,
+        message,
+        order: problems.length,
+    });
 }
 
 function stripQuotes(value) {
@@ -269,6 +273,47 @@ function validateWorkflow(filePath) {
     }
 }
 
+const MANIFEST_PATH = join(REPO_ROOT, ".claude-plugin", "marketplace.json");
+
+function validateManifest() {
+    let content;
+    try {
+        content = readFileSync(MANIFEST_PATH, "utf8");
+    } catch (error) {
+        addProblem(
+            MANIFEST_PATH,
+            error.code === "ENOENT" ? "missing marketplace manifest" : `could not be read: ${error.message}`,
+        );
+        return;
+    }
+
+    let manifest;
+    try {
+        manifest = JSON.parse(content);
+    } catch (error) {
+        addProblem(MANIFEST_PATH, `is not valid JSON: ${error.message}`);
+        return;
+    }
+
+    if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+        addProblem(MANIFEST_PATH, "must contain a JSON object at the top level");
+        return;
+    }
+
+    for (const key of ["name", "description"]) {
+        const value = manifest[key];
+        if (typeof value !== "string" || value.trim() === "") {
+            addProblem(MANIFEST_PATH, `top-level \`${key}\` is missing or empty`);
+        }
+    }
+
+    if (!Array.isArray(manifest.plugins)) {
+        addProblem(MANIFEST_PATH, "top-level `plugins` is missing or is not an array");
+    } else if (manifest.plugins.length === 0) {
+        addProblem(MANIFEST_PATH, "top-level `plugins` array is empty");
+    }
+}
+
 function findWorkflowFiles() {
     const workflowsDir = join(REPO_ROOT, "workflows");
     if (!existsSync(workflowsDir)) return [];
@@ -293,20 +338,38 @@ function findSkillDirs() {
         .sort();
 }
 
-for (const dirName of findSkillDirs()) {
+function plural(count, noun) {
+    return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+const skillDirs = findSkillDirs();
+for (const dirName of skillDirs) {
     validateSkill(dirName);
 }
 
-for (const filePath of findWorkflowFiles()) {
+const workflowFiles = findWorkflowFiles();
+for (const filePath of workflowFiles) {
     validateWorkflow(filePath);
 }
 
+validateManifest();
+
+// Deterministic output: group by path, keeping each file's problems in the
+// order they were found.
+problems.sort((a, b) => a.path.localeCompare(b.path) || a.order - b.order);
+
+// The summary and final status always go to stdout; problems always to stderr.
+console.log(
+    `Checked ${plural(skillDirs.length, "skill")}, ${plural(workflowFiles.length, "workflow")}, and 1 marketplace manifest.`,
+);
+
+for (const problem of problems) {
+    console.error(`${problem.path}: ${problem.message}`);
+}
+
 if (problems.length > 0) {
-    for (const problem of problems) {
-        console.error(problem);
-    }
-    console.error(`\n${problems.length} problem(s) found.`);
+    console.log(`FAIL: ${plural(problems.length, "problem")} found.`);
     process.exit(1);
 }
 
-console.log("All skills valid.");
+console.log("OK: all checks passed.");
