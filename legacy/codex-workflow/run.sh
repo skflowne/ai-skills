@@ -54,12 +54,14 @@ if [[ $mode != review-supervised && $mode != review-lite && $pr_reporting_option
   exit 2
 fi
 
-skills_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# This script lives at legacy/codex-workflow/, so the repository root is two levels up, not one.
+skills_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+legacy_root="$skills_root/legacy"
+# The current workflows are still at the repository root; everything else this script launches is
+# retired alongside it. It launches scripts by path, so none of it depends on skill registration.
 workflow_dir="$skills_root/workflows"
-# The retired workflows still run here — this track launches scripts by path, so it never depended on
-# them being registered as skills: entry points. They are unmaintained; prefer the modes above them.
-legacy_workflow_dir="$skills_root/legacy/workflows"
-config_dir="$skills_root/workflows-codex"
+legacy_workflow_dir="$legacy_root/workflows"
+config_dir="$legacy_root/workflows-codex"
 
 case "$mode" in
   issue-to-pr)

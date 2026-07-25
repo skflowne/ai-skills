@@ -1,6 +1,9 @@
 # Legacy
 
-Superseded work, kept for reference. Nothing here is maintained, and nothing here is wired up.
+Superseded work, kept for reference. Nothing here is maintained.
+
+Workflows are written in Claude format from now on. The codex package consumes that format directly,
+so there is one tree to maintain rather than a Claude track and a codex track in parallel.
 
 The current workflow tree is `issue-to-pr` and its two children:
 
@@ -17,10 +20,12 @@ Launch them through the `run-workflow` skill, never `Workflow()` directly.
 | Path | Superseded by | Notes |
 | --- | --- | --- |
 | `workflows/fast-implement.js` | `supervised-implement` | Wrapped the `tdd-forge` skill, which is still current and directly invocable. |
-| `workflows/fast-issue-to-pr.js` | `issue-to-pr` | Composed `fast-implement` + `review-fix-loop`. **Broken by the move** — see below. |
+| `workflows/fast-issue-to-pr.js` | `issue-to-pr` | Composed `fast-implement` + `review-fix-loop`. **Non-functional:** it resolves both children by registered name, and neither is registered any more. |
 | `workflows/review-fix-loop.js` | `review-supervised` | Ran the fixed `council-review` panel alongside the tailored one. `council-review` itself is still current — `review-supervised` points at it as the read-only fallback for fork PRs. |
 | `workflows/implement-issue-flow.js` | `issue-to-pr` | Unattended version of the `implement-issue` skill below. |
 | `implement-issue/` | `supervised-implement` | Hand-orchestrated issue-to-PR skill, driven from the main conversation. |
+| `codex-workflow/` | running the workflows directly | Skill wrapping `codex-workflow run <script> --config <ts>`. |
+| `workflows-codex/` | — | The two provider configs that wrapper passed. |
 
 ## Why they were retired
 
@@ -30,16 +35,22 @@ worktree the run creates, leaving the checkout untouched — see the worktree is
 args, pinned base branch, dirty-tree confirmation), so a run started from whatever happened to be
 checked out branched from it.
 
-## The codex track still runs these
+## The codex track
 
-`codex-workflow/run.sh` launches workflow scripts **by path**, so it never depended on skill
-registration. Its `implement`, `fast-implement`, and `review` modes now point here and still work.
+Retired as a track, not as a capability. Workflows are written in Claude format from now on, and the
+codex package consumes that format directly — so the wrapper that paired a script with a provider
+config no longer earns its place.
 
-Its `fast-issue-to-pr` mode does not. That script resolves its two children through
-`workflow('skills:fast-implement')` and `workflow('skills:review-fix-loop')` — registered names, which
-no longer exist — so it fails as soon as it reaches the first child. Fixing it would mean inlining
-both children or restoring the names; neither is worth doing for a retired composite. Use
-`issue-to-pr` instead.
+`run.sh` still works if you need it: it launches scripts by path, so it never depended on skill
+registration, and its paths were repointed when it moved here. Its `issue-to-pr` and
+`review-supervised` modes still reach the current workflows at the repository root.
+
+Its `fast-issue-to-pr` mode does not work, and won't be fixed. That script resolves its two children
+through `workflow('skills:fast-implement')` and `workflow('skills:review-fix-loop')` — registered
+names, which no longer exist — so it fails as soon as it reaches the first child. Use `issue-to-pr`.
+
+Its `implement` mode maps to `implement-issue-flow`, not to the current `supervised-implement`; the
+codex track never had a mode for the latter.
 
 ## Moving something back
 
