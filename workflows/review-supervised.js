@@ -112,6 +112,12 @@ const FINDING_ITEM_SCHEMA = {
     failureScenario: { type: 'string', minLength: 1 },
     evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1 },
     finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
+    // Root-cause classification from the council skills' design-soundness lens. Optional here so
+    // agents that only regroup findings (rather than judge them) are not forced to invent one.
+    rootCause: { type: 'string', enum: ['local-bug', 'wrong-seam'] },
+    // One-sentence invariant the finding is really protecting. Required by the skill for any
+    // wrong-seam finding; a wrong-seam cluster that cannot name its invariant is a local-bug.
+    invariant: { type: 'string' },
   },
   required: ['severity', 'description', 'failureScenario', 'evidence', 'finders'],
 }
@@ -655,7 +661,9 @@ Drop any finding whose evidence sits outside the diff range above — it belongs
 
 ${completedReports.map(({ expert, result }) => `### ${expert.role}\nFocus: ${expert.focus}\n${result}`).join('\n\n')}
 
-Set done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding with severity, area, file, concise description, concrete failureScenario, non-empty evidence, and all expert-role finders; nits may be omitted.`, {
+Set done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding with severity, area, file, concise description, concrete failureScenario, non-empty evidence, and all expert-role finders; nits may be omitted.
+
+Apply the skill's mandatory root-cause classification before returning: cluster the surviving findings by shared root cause and set 'rootCause' on every finding to 'local-bug' or 'wrong-seam'. Every 'wrong-seam' finding must also carry 'invariant' — the one-sentence invariant that has no single owner. Do not downgrade a cluster to 'local-bug' because the patch would be smaller or the round is late.`, {
     phase: 'Judge',
     label: `r${round}:yolo:judge`,
     schema: JUDGE_SCHEMA,

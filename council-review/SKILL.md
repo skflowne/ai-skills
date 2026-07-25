@@ -5,7 +5,7 @@ description: "Use independent sub-agents as a panel of expert reviewers (correct
 
 # Council Review
 
-Run a fixed panel of four expert reviewers in parallel, then synthesize their reports.
+Run a fixed panel of five expert reviewers in parallel, then synthesize their reports.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Run a fixed panel of four expert reviewers in parallel, then synthesize their re
 
 ## Expert panel
 
-Spawn **four** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
+Spawn **five** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
 
 ```
 /pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
@@ -32,6 +32,7 @@ Your focus areas: {focus}
 | **UI/UX** | UI & UX reviewer | Run the app in a browser and test the relevant flow as a user would. Visually verify each state and interaction, and report behavior that is not ideal, including interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, and friction points. |
 | **Architecture** | Code architecture reviewer | Module boundaries, abstractions, duplication, coupling, naming, testability, whether patterns match the codebase, maintainability |
 | **Security** | Security reviewer | Auth/authz gaps, input validation, injection risks, secrets exposure, unsafe dependencies, data handling, OWASP-style concerns |
+| **Design soundness** | Root-cause & design-soundness reviewer | Whether the seams are right, not whether the behavior is right. For each defect you see, name the invariant it is really protecting and ask who owns that invariant — one mechanism, or scattered guards and duplicate machines? Is each touched component still coherent at its current size and responsibility count? Run `git log --name-only` over the touched files and report any that recur across consecutive `fix:` commits, plus any abstraction a later commit deleted in favor of inline guards. |
 
 Pass each sub-agent the PR number, issue context, and its row from the table above.
 
@@ -39,7 +40,7 @@ For UI/UX reviews, use the browser automation tool available in the host environ
 
 ## Synthesis
 
-Your job is to analyze all four reports with a critical mindset — do not accept findings at face value.
+Your job is to analyze all five reports with a critical mindset — do not accept findings at face value.
 
 - Cross-check overlapping findings; deduplicate and reconcile severity.
 - Anything in a reviewer report shaped like "may not accept," "documented separately," "not guaranteed to," "assumes the endpoint," or issue-cited external docs → **WebFetch** the doc before assigning severity.
@@ -47,10 +48,39 @@ Your job is to analyze all four reports with a critical mindset — do not accep
 - Note where experts disagree and resolve with code/issue evidence.
 - Preserve each finding's concise description, failure scenario, and evidence through deduplication; a finding missing any of these is invalid.
 
+## Root-cause classification
+
+Mandatory, after dedupe, before you write the fix plan. Group the surviving findings into **clusters** that share a root cause — same invariant, same state, same seam. A cluster may hold one finding.
+
+Answer, per cluster:
+
+1. Is this a local bug, or a symptom of a wrong seam / wrong state model?
+2. Is this component's design still correct at its current size and responsibility count?
+3. Is the architecture of the feature/module sound, judged against the invariants it must maintain?
+
+Then classify every cluster. There is no default and no "unclear" — an unclassified cluster is an incomplete review.
+
+| Class | Meaning | Resolution |
+|-------|---------|------------|
+| `local-bug` | The seam is right; the logic inside it is wrong. | Patch it in place. |
+| `wrong-seam` | The invariant has no single owner, or lives in the wrong place. Patching treats a symptom. | Escalates to a refactor task. **Must not be patched.** |
+
+Evidence that makes a cluster `wrong-seam` — any one is sufficient:
+
+- The same invariant is enforced in more than one place (duplicate mechanisms, parallel guards protecting one piece of state).
+- The obvious fix would add another guard, flag, or ref to state that already has several.
+- A touched file recurs across more than two consecutive `fix:` commits.
+- A previous abstraction covering this invariant was deleted in favor of inline guards.
+- The finding lives in responsibility a component has accreted beyond what its name implies.
+
+A `wrong-seam` cluster must state its invariant in one sentence — "UI always converges to the last server-accepted write," "planner entry and calendar block always describe the same range." A cluster that cannot name its invariant is `local-bug`.
+
+**Escalation rule.** Report `wrong-seam` clusters as refactor tasks: restate the invariant, extract or redesign the mechanism that owns it (with unit tests on the extracted mechanism), then re-run the existing behavioral suite unchanged. Never as another guard clause. Do not downgrade a cluster to `local-bug` because the patch would be smaller, the round is late, or the diff is already large — say the design is wrong when it is wrong.
+
 ## Handoff
 
 0. Verify what has already been posted on the PR or as part of follow-up issues, unless something is new or has relevant new findings that should be posted as an update, it is irrelevant, therefore do not pollute the summary with it
-1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area
-2. Recommend a fix plan (blockers first, then major, minor, nits).
+1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area. Tag each finding with its cluster and that cluster's classification.
+2. Recommend a fix plan (blockers first, then major, minor, nits). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
 3. Ask the user if they accept the plan.
 4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post inline comments plus a summary review; create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the comments.

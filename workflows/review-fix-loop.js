@@ -27,6 +27,7 @@ const COUNCIL_EXPERTS = [
   { role: 'UI & UX reviewer', focus: 'Run the app in a browser and test the relevant flow as a user would. Visually verify each state and interaction; report interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, friction points.' },
   { role: 'Code architecture reviewer', focus: 'Module boundaries, abstractions, duplication, coupling, naming, testability, whether patterns match the codebase, maintainability' },
   { role: 'Security reviewer', focus: 'Auth/authz gaps, input validation, injection risks, secrets exposure, unsafe dependencies, data handling, OWASP-style concerns' },
+  { role: 'Root-cause & design-soundness reviewer', focus: 'Whether the seams are right, not whether the behavior is right. For each defect, name the invariant it is really protecting and ask who owns that invariant — one mechanism, or scattered guards and duplicate machines? Is each touched component still coherent at its current size and responsibility count? Run `git log --name-only` over the touched files and report any that recur across consecutive `fix:` commits, plus any abstraction a later commit deleted in favor of inline guards.' },
 ]
 
 const FINDING_ITEM_SCHEMA = {
@@ -42,6 +43,12 @@ const FINDING_ITEM_SCHEMA = {
     failureScenario: { type: 'string', minLength: 1, description: 'Concrete sequence or conditions that cause harm and its impact.' },
     evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, description: 'Concrete supporting evidence, such as file/line references, test output, or documentation.' },
     finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
+    // Root-cause classification from the council skills' design-soundness lens. Optional here so
+    // agents that only regroup findings (rather than judge them) are not forced to invent one.
+    rootCause: { type: 'string', enum: ['local-bug', 'wrong-seam'] },
+    // One-sentence invariant the finding is really protecting. Required by the skill for any
+    // wrong-seam finding; a wrong-seam cluster that cannot name its invariant is a local-bug.
+    invariant: { type: 'string' },
   },
   required: ['severity', 'description', 'failureScenario', 'evidence', 'finders'],
 }
@@ -127,7 +134,9 @@ ${REPO_CONTEXT}
 
 ${reports.map((r, i) => r ? `### ${COUNCIL_EXPERTS[i].role}\n${r}` : null).filter(Boolean).join('\n\n')}
 
-Return the synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.`,
+Return the synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders'. 'finders' must list every expert role that independently reported the issue; preserve the complete list when deduplicating overlapping reports.
+
+Then apply the skill's mandatory root-cause classification: cluster the surviving findings by shared root cause and set 'rootCause' on every finding to 'local-bug' or 'wrong-seam'. Every 'wrong-seam' finding must also carry 'invariant' — the one-sentence invariant that has no single owner. Do not downgrade a cluster to 'local-bug' because the patch would be smaller or the diff is already large.`,
 
     { phase: 'Review', label: `r${round}:council:synthesis`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })
 
@@ -139,7 +148,7 @@ async function runYoloPanel(prNumber, round) {
   log(`  [yolo] supervisor composing the roster and dispatching reviewer sub-agents`)
   const panel = await agent(`Follow the yolo-council-review skill to run the complete tailored council review for PR #${prNumber}. You are the panel supervisor: fetch the PR, linked issues, diff, and original goal; compose a distinct 2-6 expert roster; then spawn one reviewer sub-agent per expert, all in parallel. The children are reviewer roles, not supervisors. Give each child the PR and issue context plus its assigned role/focus, and have it follow the pr-review skill without posting comments.
 
-After every reviewer returns, critically synthesize their reports yourself: verify evidence, fetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps.
+After every reviewer returns, critically synthesize their reports yourself: verify evidence, fetch any external documentation a claim depends on, deduplicate overlaps, reconcile severity, and drop speculative findings. The panel performs the primary exploration: adjudicate only material findings, disagreements, and evidence gaps; do not restart a broad file-by-file PR review or hunt for unrelated new issues. Return promptly once those are resolved. Do not post to GitHub and do not ask for approval; this workflow handles the handoff. Return only the final synthesized findings as structured items with 'severity', 'area', 'file', concise one-or-two-sentence 'description', 'failureScenario' (the concrete conditions, failure, and impact), non-empty 'evidence' (file/line references, test output, or documentation), and 'finders', not the roster or child transcripts. For each finding, 'finders' must list every expert role that independently reported it, preserving the complete list when deduplicating overlaps. Apply the skill's mandatory root-cause classification too: cluster the surviving findings by shared root cause and set 'rootCause' on every finding to 'local-bug' or 'wrong-seam'; every 'wrong-seam' finding must also carry 'invariant', the one-sentence invariant that has no single owner. Do not downgrade a cluster to 'local-bug' because the patch would be smaller.
 
 ${REPO_CONTEXT}`,
     { phase: 'Review', label: `r${round}:yolo:supervisor`, schema: PANEL_SCHEMA, agentType: 'general-purpose' })

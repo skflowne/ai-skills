@@ -27,6 +27,7 @@ Before spawning sub-agents, decide the expert roster from the **original goal** 
 - Give each expert a **distinct, non-overlapping** focus. If two experts would hunt the same bugs, merge them.
 - Skip experts that the goal does not need. A backend-only refactor does not need a UI/UX reviewer unless the issue says otherwise.
 - Always include at least one expert whose job is to check **implementation vs issue intent** (correctness / acceptance criteria), unless the goal is purely non-code (e.g. docs-only with no behavioral claims).
+- Always include at least one expert who reviews **design soundness and root cause** — whether the seams are right, not whether the behavior is right. Same exemption as above. Its focus: for each defect, name the invariant it is really protecting and ask who owns that invariant (one mechanism, or scattered guards and duplicate machines); whether each touched component is still coherent at its current size and responsibility count; and what `git log --name-only` over the touched files shows — files recurring across consecutive `fix:` commits, or an abstraction a later commit deleted in favor of inline guards. Give this to a distinct expert rather than bolting it onto the correctness reviewer, whose incentive is to find bugs that a patch can close.
 
 **Examples** (illustrative — compose your own panel per goal)
 
@@ -65,10 +66,39 @@ Your job is to analyze all reviewer reports with a critical mindset — do not a
 - Attribute findings by the expert area you assigned, not by a fixed taxonomy.
 - Preserve each finding's concise description, failure scenario, and evidence through deduplication; a finding missing any of these is invalid.
 
+## Root-cause classification
+
+Mandatory, after dedupe, before you write the fix plan — regardless of which experts you composed. Group the surviving findings into **clusters** that share a root cause — same invariant, same state, same seam. A cluster may hold one finding.
+
+Answer, per cluster:
+
+1. Is this a local bug, or a symptom of a wrong seam / wrong state model?
+2. Is this component's design still correct at its current size and responsibility count?
+3. Is the architecture of the feature/module sound, judged against the invariants it must maintain?
+
+Then classify every cluster. There is no default and no "unclear" — an unclassified cluster is an incomplete review.
+
+| Class | Meaning | Resolution |
+|-------|---------|------------|
+| `local-bug` | The seam is right; the logic inside it is wrong. | Patch it in place. |
+| `wrong-seam` | The invariant has no single owner, or lives in the wrong place. Patching treats a symptom. | Escalates to a refactor task. **Must not be patched.** |
+
+Evidence that makes a cluster `wrong-seam` — any one is sufficient:
+
+- The same invariant is enforced in more than one place (duplicate mechanisms, parallel guards protecting one piece of state).
+- The obvious fix would add another guard, flag, or ref to state that already has several.
+- A touched file recurs across more than two consecutive `fix:` commits.
+- A previous abstraction covering this invariant was deleted in favor of inline guards.
+- The finding lives in responsibility a component has accreted beyond what its name implies.
+
+A `wrong-seam` cluster must state its invariant in one sentence — "UI always converges to the last server-accepted write," "planner entry and calendar block always describe the same range." A cluster that cannot name its invariant is `local-bug`.
+
+**Escalation rule.** Report `wrong-seam` clusters as refactor tasks: restate the invariant, extract or redesign the mechanism that owns it (with unit tests on the extracted mechanism), then re-run the existing behavioral suite unchanged. Never as another guard clause. Do not downgrade a cluster to `local-bug` because the patch would be smaller, the round is late, or the diff is already large — say the design is wrong when it is wrong.
+
 ## Handoff
 
 0. Verify what has already been posted on the PR or as part of follow-up issues, drop anything already existing, unless there are new discoveries worth an update
-1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area
-2. Recommend a fix plan (blockers first, then major, minor, nits).
+1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area. Tag each finding with its cluster and that cluster's classification.
+2. Recommend a fix plan (blockers first, then major, minor, nits). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
 3. Ask the user if they accept the plan.
 4. If approved, follow [github-pr-review](../../github-pr-review/SKILL.md) to post inline comments plus a summary review; create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the comments.
