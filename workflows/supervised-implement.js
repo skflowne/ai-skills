@@ -102,6 +102,21 @@ const PLAN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    // The properties that must hold regardless of ordering, interleaving, or failure. Named before
+    // the milestones because the slicing follows from them: an invariant split across two
+    // milestones ends up with two mechanisms enforcing it, neither aware of the other.
+    invariants: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          statement: { type: 'string', minLength: 1, description: 'One sentence, e.g. "the UI always converges to the last server-accepted write".' },
+          owner: { type: 'string', minLength: 1, description: 'The single mechanism that enforces it, across every file it spans.' },
+        },
+        required: ['statement', 'owner'],
+      },
+    },
     milestones: {
       type: 'array',
       minItems: 1,
@@ -112,8 +127,11 @@ const PLAN_SCHEMA = {
           title: { type: 'string' },
           description: { type: 'string' },
           needsReviewGate: { type: 'boolean' },
-          // True only when the milestone shares no file/concern with any other milestone — it
-          // gates whether the milestone is implemented in a parallel worktree chain.
+          // Invariant statements this milestone owns. Two milestones naming the same invariant
+          // cannot both be independent — see below.
+          ownsInvariants: { type: 'array', items: { type: 'string' } },
+          // True only when the milestone shares no file, concern, or invariant with any other
+          // milestone — it gates whether the milestone is implemented in a parallel worktree chain.
           independent: { type: 'boolean' },
         },
         required: ['title', 'description', 'needsReviewGate', 'independent'],
@@ -315,13 +333,30 @@ if (DIRTY_PATHS.length) {
 }
 
 phase('Plan')
-const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan of cohesive, preferably vertical milestones to implement it, per the supervised-forge skill. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent; when in doubt use independent=false. Do not post the plan to the issue. Return the milestone list only — do not implement anything yet.
+const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan to implement it, per the supervised-forge skill.
+
+First name the invariants the change introduces or touches — the properties that must hold regardless of ordering, interleaving, or failure — one sentence each, with the single mechanism that owns each one across every file it spans. Return them as invariants. Then slice cohesive, preferably vertical milestones that follow from those invariants, and set ownsInvariants on each milestone to the invariant statements it owns. Exactly one milestone owns any given invariant: state ownership is not file ownership, and an invariant divided across milestones by directory or layer produces duplicate mechanisms guarding one piece of state, none of them aware of the others. If you cannot name an owner for an invariant, or two milestones would share one, fix the slicing before returning the plan. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file, concern, or invariant that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent, and two milestones that touch the same invariant are never independent even when their files are disjoint (parallel workers cannot see each other's work, so each would build its own enforcement mechanism). When in doubt use independent=false. Do not post the plan to the issue. Return the invariant list and the milestone list only — do not implement anything yet.
 
 ${REPO_CONTEXT}`,
   { label: 'plan', model: 'opus', schema: PLAN_SCHEMA, agentType: 'general-purpose' })
 if (plan === null) throw new Error('plan agent failed — no milestones to implement')
 const { milestones } = plan
+const INVARIANTS = plan.invariants || []
 log(`Plan: ${milestones.length} milestone(s) — ${milestones.map(m => `${m.title}${m.needsReviewGate ? '' : ' (no gate)'}${m.independent ? ' (independent)' : ''}`).join(', ')}`)
+if (INVARIANTS.length) log(`Invariants: ${INVARIANTS.map(i => `${i.statement} [owner: ${i.owner}]`).join(' | ')}`)
+
+// The whole invariant list, for agents that judge the change as a whole (reviewers, final gate).
+const INVARIANT_CONTEXT = INVARIANTS.length
+  ? `\n\nInvariants this change must maintain, each with the single mechanism that owns it:\n${INVARIANTS.map(i => `- ${i.statement} — owned by: ${i.owner}`).join('\n')}`
+  : ''
+
+// Just the invariants one milestone owns. Implementers get this rather than the full list so they
+// build enforcement where the plan put it instead of scattering guards across call sites.
+function ownedInvariantContext(milestone) {
+  const owned = milestone.ownsInvariants || []
+  if (!owned.length) return ''
+  return `\n\nThis milestone owns these invariants — it is the single place they are enforced, so put the mechanism here rather than adding guards at the call sites, and keep it extractable enough to unit-test on its own:\n${owned.map(s => `- ${s}`).join('\n')}`
+}
 
 // Serial milestone: implement and gate directly on the branch in the run's worktree.
 async function runSerialMilestone(tag, milestone, total) {
@@ -329,7 +364,7 @@ async function runSerialMilestone(tag, milestone, total) {
 
 ${REPO_CONTEXT}
 
-Description: ${milestone.description}
+Description: ${milestone.description}${ownedInvariantContext(milestone)}
 
 Implement it as the sole author -- the smallest complete change for this milestone. Run the tests, lint, typecheck, and other validation relevant to this milestone. Commit your work with a message starting "${tag}: ${milestone.title}". Return the commit sha, a concise summary, and the raw, verbatim validation command output (commands run and their output).`,
     { label: `${tag}:implement`, schema: IMPLEMENT_SCHEMA, agentType: 'general-purpose' })
@@ -344,7 +379,7 @@ Implement it as the sole author -- the smallest complete change for this milesto
   const gate = await runReviewGate(
     tag,
     `milestone ${tag} ("${milestone.title}") on branch ${branch}, commit ${impl.commitSha} plus any fix-up commits on top of it`,
-    `Milestone description: ${milestone.description}
+    `Milestone description: ${milestone.description}${ownedInvariantContext(milestone)}
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
@@ -362,7 +397,7 @@ async function runParallelMilestone(tag, milestone, total) {
 
 ${REPO_CONTEXT}
 
-Description: ${milestone.description}
+Description: ${milestone.description}${ownedInvariantContext(milestone)}
 
 Implement it as the sole author -- the smallest complete change for this milestone. Run whatever validation is feasible inside the worktree (set up dependencies there if the project needs them); full validation runs again at integration. Commit your work with a message starting "${tag}: ${milestone.title}", then run \`git worktree remove --force <that dir>\` (the branch and its commits survive) and return the commit sha, a concise summary, and the raw, verbatim validation command output (commands run and their output).`,
     { label: `${tag}:implement`, schema: IMPLEMENT_SCHEMA, agentType: 'general-purpose' })
@@ -375,7 +410,7 @@ Implement it as the sole author -- the smallest complete change for this milesto
       `milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch} (parallel chain for issue #${ISSUE_NUMBER})`,
       `The chain's commits live on branch ${chainBranch}, based on ${baseSha}. Inspect them read-only from the run's worktree at ${WORKTREE_PATH} (e.g. git log/diff ${baseSha}..${chainBranch}) — do not check that branch out.
 
-Milestone description: ${milestone.description}
+Milestone description: ${milestone.description}${ownedInvariantContext(milestone)}
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
@@ -445,7 +480,7 @@ if (!finalTests.passed) {
 const finalGate = await runReviewGate(
   'finish',
   `the complete branch ${branch} against its base ${baseSha} (all milestones together, e.g. git diff ${baseSha}..HEAD)`,
-  `Milestones implemented: ${milestones.map(m => m.title).join(', ')}
+  `Milestones implemented: ${milestones.map(m => m.title).join(', ')}${INVARIANT_CONTEXT}${INVARIANT_CONTEXT ? '\n\nCheck each invariant end to end across the whole branch: it must be enforced in exactly one mechanism. Report any invariant now guarded in more than one place, or enforced somewhere other than its stated owner.' : ''}
 
 Final validation output:
 ${finalTests.summary}${finalTests.passed ? '' : `

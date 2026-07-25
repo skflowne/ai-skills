@@ -81,7 +81,7 @@ ${JSON.stringify(review.findings, null, 2)}`,
 
   if (!judged.actionable.length) return { fixed: [], rationale: judged.rationale }
 
-  await agent(`${fixPromptPrefix}\n\nFindings to fix:\n${JSON.stringify(judged.actionable, null, 2)}\n\nCommit your fixes when done.`,
+  await agent(`${fixPromptPrefix}\n\nFindings to fix:\n${JSON.stringify(judged.actionable, null, 2)}\n\nCommit your fixes when done, as their own commit with a "fix: " message — do not amend or squash them into the commit they correct.`,
     { label: `${label}:fix`, agentType: 'general-purpose' })
 
   return { fixed: judged.actionable, rationale: judged.rationale }
@@ -93,14 +93,36 @@ const { branch } = await agent(`Fetch issue #${args.issueNumber} yourself. Creat
 log(`Branch ready: ${branch}`)
 
 phase('Design')
+// Invariants come first and feed both planners. Deriving them twice in parallel would give the
+// implementation and the e2e suite two different notions of what must hold.
+const invariants = await agent(`Fetch issue #${args.issueNumber} yourself and inspect the repository. Name the invariants this change introduces or touches — the properties that must hold regardless of ordering, interleaving, or failure ("the UI always converges to the last server-accepted write", "the planner entry and the calendar block always describe the same range").
+
+Return a short list, one sentence per invariant, each with the single mechanism that should own it across every file it spans. State ownership is not file ownership: an invariant enforced in more than one place is the defect to avoid. Return the list only — no implementation plan, no tests, no code.`,
+  { label: 'design:invariants', model: 'opus', agentType: 'general-purpose' })
+
 const [implPlan, e2ePlan] = await parallel([
-  () => agent(`Fetch issue #${args.issueNumber} yourself. Consider how the new code fits within the existing codebase and craft an implementation plan. Return the plan.`,
+  () => agent(`Fetch issue #${args.issueNumber} yourself. Consider how the new code fits within the existing codebase and craft an implementation plan.
+
+These are the invariants the change must maintain, each with its intended owner:
+
+${invariants}
+
+Build the plan around them: exactly one mechanism enforces each invariant, across every file it spans, and that mechanism stays extractable enough to unit-test on its own. Never split one invariant across components by directory or layer. Return the plan.`,
     { label: 'design:impl-plan', model: 'opus', agentType: 'general-purpose' }),
-  () => agent(`Fetch issue #${args.issueNumber} yourself. Consider what needs to be tested in e2e so that, once these tests pass, the implementation can be considered robust and faithful to the issue's intent, with confidence future regressions will be caught. Return the e2e plan.`,
+  () => agent(`Fetch issue #${args.issueNumber} yourself. Craft the e2e plan so that, once these tests pass, the implementation can be considered robust and faithful to the issue's intent, with confidence future regressions will be caught.
+
+Derive it from the invariants the change must maintain, not from the file list:
+
+${invariants}
+
+Each user-visible invariant gets one e2e spec through the real UI. Ordering and interleaving semantics belong in unit tests against the mechanism that owns the invariant — call those out separately. Return the e2e plan.`,
     { label: 'design:e2e-plan', model: 'opus', agentType: 'general-purpose' }),
 ])
 
-await agent(`Post these two plans as comments on issue #${args.issueNumber} via gh issue comment — implementation plan and e2e plan, clearly labeled.
+await agent(`Post these plans as comments on issue #${args.issueNumber} via gh issue comment — invariants, implementation plan, and e2e plan, clearly labeled.
+
+## Invariants
+${invariants}
 
 ## Implementation plan
 ${implPlan}
@@ -115,7 +137,11 @@ await agent(`Fetch issue #${args.issueNumber} yourself. On branch ${branch}, imp
 
 ${implPlan}
 
-Adopt a critical mindset — ensure the change fits the codebase and exposes sensible interfaces for future reuse. Commit your work.`,
+These are the invariants it must maintain, each with its intended owner:
+
+${invariants}
+
+Enforce each one in exactly one mechanism, where the plan puts it — do not add guards at the call sites instead. Adopt a critical mindset: ensure the change fits the codebase and exposes sensible interfaces for future reuse. Commit your work.`,
   { label: 'implement', agentType: 'general-purpose' })
 
 phase('Initial review')

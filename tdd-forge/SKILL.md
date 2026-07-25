@@ -23,12 +23,23 @@ After spawning or messaging reviewers, use the `subagent_wait` tool to await the
 When assigned an issue, create a dedicated branch before editing. After the required validation and review gates pass, open a PR for the completed work.
 
 1. Read repository instructions and inspect enough context to define task boundaries.
-2. Create an explicit plan of cohesive, preferably vertical and independently testable milestones. Use the plan tool when available.
-3. Put a RED/GREEN cycle and both reviewer gates in every behavior-bearing milestone.
-4. Record the plan before editing any implementation or test file.
-5. After the plan is recorded, immediately spawn both reviewers with no inherited conversation history.
+2. Name the invariants (see below). Do this before slicing milestones — the slices and the test plan both follow from the invariants, not the other way around.
+3. Create an explicit plan of cohesive, preferably vertical and independently testable milestones. Use the plan tool when available.
+4. Put a RED/GREEN cycle and both reviewer gates in every behavior-bearing milestone.
+5. Record the plan, including the invariant list and each invariant's owner, before editing any implementation or test file.
+6. After the plan is recorded, immediately spawn both reviewers with no inherited conversation history.
 
 Do not begin implementation before the plan exists and both reviewers are running.
+
+## Name the invariants first
+
+Before slicing the work, name the invariants the change introduces or touches — the properties that must hold regardless of ordering, interleaving, or failure. One sentence each, recorded in the plan: "the UI always converges to the last server-accepted write," "the planner entry and the calendar block always describe the same range."
+
+- **One owner per invariant, end to end.** Exactly one mechanism enforces each invariant, across every file it spans. Never divide an invariant between milestones by directory or layer — state ownership is not file ownership. Splitting by file is what produces three duplicate ordering machines guarding one piece of state, none of them aware of the others.
+- **Invariants govern the test plan.** Each user-visible invariant gets one end-to-end spec through the real interface. Ordering and interleaving semantics get unit tests against the mechanism that owns the invariant, which is a reason to keep that mechanism extractable. Derive coverage from the invariant list, not from the file list — and give the test-coverage reviewer the invariant its milestone belongs to, so it designs against the property rather than the diff.
+- **Fix commits extend the owning invariant's spec** rather than adding a one-off regression test next to it. A fix that cannot be expressed as a case in that spec is a signal the invariant is owned in the wrong place — treat it as a design problem, not a missing test.
+
+An invariant with no named owner, or one owned in more than one place, is a planning defect. Resolve it in the plan, before implementing.
 
 ## Select reviewer models
 
@@ -43,11 +54,11 @@ If a preferred model is unavailable, use the strongest substitute and disclose i
 
 ## Brief the reviewers independently, once, up front
 
-The spawn brief is the only time the primary describes the task to a reviewer. Give each reviewer, once: the original task prompt, the requirements, the complete milestone plan, the working branch and base ref, and an instruction not to edit files.
+The spawn brief is the only time the primary describes the task to a reviewer. Give each reviewer, once: the original task prompt, the requirements, the complete milestone plan, the invariant list with each invariant's owner, the working branch and base ref, and an instruction not to edit files.
 
-Ask the correctness reviewer to identify invariants, regression risks, validation targets, and missing review gates across the plan. State the standing expectation for every review: concrete correctness and regression findings ranked by severity with exact file and line references. Do not ask it to co-design the implementation.
+Ask the correctness reviewer to check the invariant list for gaps — invariants the change touches but the plan does not name, and any invariant the plan gives more than one owner — and to identify regression risks, validation targets, and missing review gates across the plan. State the standing expectation for every review: concrete correctness and regression findings ranked by severity with exact file and line references. Do not ask it to co-design the implementation.
 
-Ask the test-coverage reviewer to design automated tests for milestone 1 only. Require concrete test cases, assertions, fixtures/mocks, commands, and the failure that should prove RED. Do not request tests for later milestones yet and do not reveal the intended implementation.
+Ask the test-coverage reviewer to design automated tests for milestone 1 only, against the invariants that milestone owns. Require concrete test cases, assertions, fixtures/mocks, commands, and the failure that should prove RED. Do not request tests for later milestones yet and do not reveal the intended implementation.
 
 If the milestone plan changes later, send both reviewers the updated plan as a plain factual update with no commentary on work in progress.
 
@@ -74,6 +85,15 @@ For each milestone:
 13. Only then mark the milestone complete and request test design for the next milestone.
 
 Reuse the same two reviewer processes through follow-up messages. Do not spawn replacements at each gate.
+
+## Commit every milestone and every fix
+
+Non-negotiable: one commit per milestone, one commit per round of fixes. Never leave work uncommitted until the end, never squash several milestones into one commit, and never fold a fix round into the milestone commit it corrects.
+
+- Milestone commits: `M<n>: <summary>`, carrying the milestone's tests and production code together.
+- Fix commits: `fix: <summary>`, made after the rerun validation passes.
+
+Two things depend on this. Each reviewer locates a milestone by its commits and inspects them itself — that is why review requests carry only a milestone identifier. And the shape of the history is a signal in its own right: a file recurring across consecutive `fix:` commits means the guards are accreting in one place and the seam is likely wrong. Squashing or deferring commits erases that signal exactly where it matters most.
 
 ## Define meaningful milestones
 
