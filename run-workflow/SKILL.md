@@ -40,6 +40,16 @@ Interpret the arguments following the skill invocation as:
 These three are the only entry points. `issue-to-pr` is the composite; the other two are its children,
 runnable on their own. All support `baseBranch`/`allowDirtyTree` and worktree isolation.
 
+**`skills:split-chunks` is the one workflow this skill does not launch.** It takes a decomposition —
+chunk contracts with scope allowlists and file budgets, plus the trunk-owned path denylist — which
+cannot be parsed from a slash-command invocation and has to be authored against the actual repo.
+[split-forge](../split-forge/SKILL.md) owns that entry point: it names the invariants, sorts trunk
+work from chunk work, runs the same preflight this skill does (steps 2–5 below), launches the run,
+and then authors the cross-cutting commit itself. Route "split this up", "implement it in parallel
+chunks", or `$split-forge` there. Never call `Workflow({name: 'skills:split-chunks'})` without going
+through it — an unpreflighted run branches from whatever is checked out, and a hand-written args
+object with no `crossCuttingPaths` leaves every doc and shared module writable by every chunk.
+
 The former `fast-implement`, `fast-issue-to-pr`, `review-full`, and `implement-flow` modes are gone.
 Their scripts moved to `legacy/workflows/` and are no longer registered as `skills:` workflows, so
 `Workflow()` cannot launch them. If a user asks for one by name, say it was retired and offer the
