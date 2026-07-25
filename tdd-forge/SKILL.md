@@ -41,6 +41,12 @@ Before slicing the work, name the invariants the change introduces or touches �
 
 An invariant with no named owner, or one owned in more than one place, is a planning defect. Resolve it in the plan, before implementing.
 
+## Look before authoring anything new
+
+Before writing any new helper, hook, constant, type, or coordination mechanism — in production code or in tests — check whether an equivalent already exists. Read the repository's placement conventions (CLAUDE.md / AGENTS.md — where constants, pure logic, and hooks live) and look there first: list the shared directories, read the constants module. The step costs seconds; skipping it is how a codebase ends up with three write-ordering machines guarding one piece of state and two copies of the same formatter. If an equivalent exists, import it; if it almost fits, extend it rather than writing a parallel local version. A new definition that duplicates an existing shared symbol is a defect even when its logic is correct.
+
+The same rule protects the other direction: never delete, inline, or bypass an existing shared module or accessor as part of a milestone or a fix. If a shared mechanism seems to be in the way, that is a design question — raise it in the plan and with the correctness reviewer; do not ship inline guards in its place.
+
 ## Select reviewer models
 
 Use high-capability reasoning models for both reviewers. Never choose fast, low-thinking, or economy models because review runs in the background.
@@ -56,7 +62,7 @@ If a preferred model is unavailable, use the strongest substitute and disclose i
 
 The spawn brief is the only time the primary describes the task to a reviewer. Give each reviewer, once: the original task prompt, the requirements, the complete milestone plan, the invariant list with each invariant's owner, the working branch and base ref, and an instruction not to edit files.
 
-Ask the correctness reviewer to check the invariant list for gaps — invariants the change touches but the plan does not name, and any invariant the plan gives more than one owner — and to identify regression risks, validation targets, and missing review gates across the plan. State the standing expectation for every review: concrete correctness and regression findings ranked by severity with exact file and line references. Do not ask it to co-design the implementation.
+Ask the correctness reviewer to check the invariant list for gaps — invariants the change touches but the plan does not name, and any invariant the plan gives more than one owner — and to identify regression risks, validation targets, and missing review gates across the plan. Also give it a standing duplication-and-deletion lens for every milestone: flag code that reimplements an existing shared module or re-inlines an existing constant, and treat any deletion, inlining, or bypass of a shared module or accessor as an escalation — a design question to resolve, never a change to wave through because tests stay green. State the standing expectation for every review: concrete correctness and regression findings ranked by severity with exact file and line references. Do not ask it to co-design the implementation.
 
 Ask the test-coverage reviewer to design automated tests for milestone 1 only, against the invariants that milestone owns. Require concrete test cases, assertions, fixtures/mocks, commands, and the failure that should prove RED. Do not request tests for later milestones yet and do not reveal the intended implementation.
 
@@ -95,11 +101,24 @@ Non-negotiable: one commit per milestone, one commit per round of fixes. Never l
 
 Two things depend on this. Each reviewer locates a milestone by its commits and inspects them itself — that is why review requests carry only a milestone identifier. And the shape of the history is a signal in its own right: a file recurring across consecutive `fix:` commits means the guards are accreting in one place and the seam is likely wrong. Squashing or deferring commits erases that signal exactly where it matters most.
 
+## The refactor fork
+
+The fix loop must not stack guards. Two triggers, either one sufficient:
+
+- the same file appears in more than two consecutive fix rounds (in this task's rounds or in the existing `git log --name-only` history), or
+- a reviewer classifies a finding as a wrong seam — the invariant it protects has no single owner or lives in the wrong place.
+
+When a trigger fires, the next round is a refactor task, not another patch: restate the invariant the accumulated guards are protecting, extract or redesign the one mechanism that owns it (with unit tests on the extracted mechanism — ask the test-coverage reviewer to design them against the invariant), then re-run the existing behavioral suite unchanged. Do not add another guard, flag, or ref to state that already has several, and do not defer the refactor because the round is late or the diff is already large. If the refactor exceeds the task's scope, stop and report it as a blocking design finding instead of shipping the patch.
+
 ## Define meaningful milestones
 
 Create a review gate after any cohesive user-visible slice or change to an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, power, security, destructive, or platform-specific contract. Batch tiny mechanical edits into the nearest milestone.
 
 Structure behavior changes so each milestone can demonstrate RED/GREEN. For documentation, generated artifacts, or purely mechanical changes where a meaningful failing automated test is impossible, have the test reviewer specify the closest deterministic validation and record why strict RED does not apply. Never create a fake failing test merely to satisfy the ceremony.
+
+## Run end-to-end specs locally only for what you touched
+
+When the repository's CI runs the full end-to-end suite on push, never run the full suite locally. Locally, run only the spec(s) the milestone touched — RED/GREEN per spec still applies and is proven locally. After pushing, monitor the CI run (e.g. `gh run watch`) and treat failures as workflow input like any review finding: fix, commit, push, monitor again. If the repository has no CI for the suite, fall back to a full local run before opening the PR and say so in the final report.
 
 ## Preserve review integrity
 
