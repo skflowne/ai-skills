@@ -158,6 +158,9 @@ const PR_RESOLVE_SCHEMA = {
     baseRefName: { type: 'string' },
     headSha: { type: 'string' },
     state: { type: 'string' },
+    // True when the head branch lives in a fork rather than this repository. The fix rounds push, so
+    // this decides whether the run can proceed at all — see the refusal below.
+    isCrossRepository: { type: 'boolean' },
   },
   required: ['found'],
 }
@@ -334,12 +337,18 @@ const MAX_SCOUT_OBSERVATIONS = 8
 const MAX_OBSERVATION_CHARS = 300
 const MAX_SUMMARY_CHARS = 500
 const MAX_DESCRIPTION_CHARS = 400
-// Runaway backstop only. Scouting must cover the whole phase — that is the point of it, and a long
-// fix phase is exactly when visibility matters most — so this is set well above the number of
-// back-to-back passes any real phase fits, not used to ration updates. Per-pass cost is controlled
-// by routing scouts to a cheap tier (see the scout agent's model/effort) and by skipping the
-// report write when a pass observed nothing new.
-const MAX_SCOUT_TICKS = 60
+// Scout budget. Per-pass cost is controlled by routing scouts to a cheap tier and by skipping the
+// report write when a pass observed nothing new, but the binding constraint is a *count*, not a
+// cost: a workflow may spawn at most 1000 agents, and every scout pass is one agent plus (usually) a
+// second for the report write it triggers. A per-phase-only cap multiplies by the number of phases —
+// 4 review rounds + 4 fix rounds + 1 verification at 60 each is ~540 scouts and ~540 report writes,
+// which exhausts the cap on telemetry alone and starves the actual review.
+//
+// So the run-wide total is the real limit and the per-phase cap only stops one long phase from
+// eating it. Both are logged when hit; a silently truncated trail reads as "nothing was happening".
+const MAX_SCOUT_TICKS_PER_PHASE = 20
+const MAX_SCOUT_TICKS_TOTAL = 80
+let scoutTicksUsed = 0
 
 function truncate(text, max) {
   const value = String(text == null ? '' : text).replace(/\s+/g, ' ').trim()
@@ -476,7 +485,10 @@ function updateReport(reason) {
   return reportRunner
 }
 
-async function runScoutPass(phaseName, tick, isSettled) {
+// phaseName is the human label shown in the PR report ("Fix round 2"); phaseGroup is the declared
+// meta.phases title the agent is filed under in /workflows. They are separate on purpose: using the
+// per-round label as the progress group spawns a fresh, one-agent group box for every round.
+async function runScoutPass(phaseName, phaseGroup, tick, isSettled) {
   // The full findings list only orients the scout; re-sending it on every tick pays for the same
   // JSON dozens of times per phase. After the first pass a count is enough.
   const findingsContext = tick === 1
@@ -495,7 +507,7 @@ Known panel: ${report.panel.length ? report.panel.map(expert => expert.role).joi
 ${findingsContext}
 
 Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SCOUT_OBSERVATIONS} observations of at most ${MAX_OBSERVATION_CHARS} characters each. Anything longer is truncated.`, {
-    phase: report.currentPhase,
+    phase: phaseGroup,
     label: `${phaseName}:scout:${tick}`,
     schema: SCOUT_SCHEMA,
     // Observing and describing state is a cheap job, and it runs continuously for the whole phase.
@@ -540,7 +552,10 @@ Return a summary of at most ${MAX_SUMMARY_CHARS} characters and at most ${MAX_SC
 
 // Runs scout passes back-to-back while the operation is in flight — each pass is an agent run that
 // takes minutes, which provides the pacing (no script-side timers; they are not portable).
-async function withPhaseScout(phaseName, operation) {
+// phaseGroup must be one of meta.phases' titles — scouts are filed under it so they join the phase
+// they are observing instead of each round opening its own group. report.currentPhase keeps the
+// per-round label, which is what the PR report body wants to show.
+async function withPhaseScout(phaseName, phaseGroup, operation) {
   report.currentPhase = phaseName
   report.status = `${phaseName} in progress`
 
@@ -549,14 +564,24 @@ async function withPhaseScout(phaseName, operation) {
   const operationPromise = Promise.resolve().then(operation).finally(() => { settled = true })
   const scoutPromise = reportingAvailable ? (async () => {
     let tick = 1
-    while (!settled && reportingAvailable && scoutFailures < 3 && tick <= MAX_SCOUT_TICKS) {
+    while (!settled && reportingAvailable && scoutFailures < 3 && tick <= MAX_SCOUT_TICKS_PER_PHASE && scoutTicksUsed < MAX_SCOUT_TICKS_TOTAL) {
+      scoutTicksUsed++
       try {
-        scoutFailures = (await runScoutPass(phaseName, tick, () => settled)) ? 0 : scoutFailures + 1
+        scoutFailures = (await runScoutPass(phaseName, phaseGroup, tick, () => settled)) ? 0 : scoutFailures + 1
       } catch (error) {
         scoutFailures++
         log(`[warn] ${phaseName} scout report ${tick} failed: ${error instanceof Error ? error.message : String(error)}`)
       }
       tick++
+    }
+    // Never truncate the trail silently — "no more observations" and "the budget ran out" look
+    // identical in the PR report otherwise.
+    if (!settled && reportingAvailable && scoutFailures < 3) {
+      if (scoutTicksUsed >= MAX_SCOUT_TICKS_TOTAL) {
+        log(`${phaseName}: run-wide scout budget (${MAX_SCOUT_TICKS_TOTAL} passes) exhausted — the phase continues, but no further progress observations will be posted for the rest of the run`)
+      } else if (tick > MAX_SCOUT_TICKS_PER_PHASE) {
+        log(`${phaseName}: per-phase scout cap (${MAX_SCOUT_TICKS_PER_PHASE} passes) reached — the phase continues without further progress observations`)
+      }
     }
   })() : Promise.resolve()
 
@@ -641,7 +666,9 @@ Set done=true only if no blocker, major, or minor remains. Otherwise return ever
 }
 
 async function reviewAndJudge(reviewRound) {
-  return withPhaseScout(`Review round ${reviewRound}`, async () => {
+  // Scouts file under Review even though the operation ends in Judge: they spend nearly all of
+  // their passes watching the panel, and splitting them across two groups would fragment the trail.
+  return withPhaseScout(`Review round ${reviewRound}`, 'Review', async () => {
     phase('Review')
     log(`Round ${reviewRound}/${MAX_ROUNDS}: tailored yolo-council review`)
 
@@ -665,7 +692,7 @@ async function reviewAndJudge(reviewRound) {
 // the single most expensive phase re-run only to answer a narrow question — whether the findings
 // that were still open got fixed — so this re-judges exactly those findings against the pushed head.
 async function finalReJudge(verificationRound, openFindings) {
-  return withPhaseScout(`Verification round ${verificationRound}`, async () => {
+  return withPhaseScout(`Verification round ${verificationRound}`, 'Judge', async () => {
     phase('Judge')
     log(`Post-fix verification after round ${MAX_ROUNDS}: re-judging ${openFindings.length} finding(s) against the pushed head`)
 
@@ -710,7 +737,13 @@ ${final
     : `State that fixes will run for these ${judged.findings.length} finding(s).`}
 
 Findings:
-${JSON.stringify(judged.findings)}`, { label: `r${reviewRound}:post` })
+${JSON.stringify(judged.findings)}`, {
+      // Explicit: this call is deliberately not awaited before runFix starts, so by the time it
+      // spawns the global phase() has usually already moved to Fix — and the verdict post would be
+      // filed under the fix round it announces rather than the judgement it reports.
+      phase: 'Judge',
+      label: `r${reviewRound}:post`,
+    })
     if (result === null) throw new Error('post agent failed')
     log(`Round ${reviewRound}: review posted to PR #${PR_NUMBER}`)
   } catch (error) {
@@ -842,7 +875,7 @@ ${impl.validationOutput}`,
 }
 
 async function runFix(round, findings) {
-  return withPhaseScout(`Fix round ${round}`, async () => {
+  return withPhaseScout(`Fix round ${round}`, 'Fix', async () => {
     phase('Fix')
 
     // One mechanical agent establishes both the local checkout and the verified remote head.
@@ -974,7 +1007,7 @@ log(`Starting lightweight YOLO review-fix loop for PR #${PR_NUMBER}, max ${MAX_R
 // Pin PR #N to its exact head branch before anything else runs — including the first report write,
 // so a mistyped PR number fails fast instead of posting a report comment somewhere. Later
 // git/GitHub agents cross-check against this pin rather than re-resolving with room to guess.
-const resolvedPr = await agent(`Run exactly this command and relay its result: \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,state,headRefName,baseRefName,headRefOid\`. If it succeeds, return found=true plus number, headRefName, baseRefName, headSha (the headRefOid), and state verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered PRs, try other repos or remotes, or substitute a branch.
+const resolvedPr = await agent(`Run exactly this command and relay its result: \`gh pr view ${PR_NUMBER}${GH_REPO_FLAG} --json number,state,headRefName,baseRefName,headRefOid,isCrossRepository\`. If it succeeds, return found=true plus number, headRefName, baseRefName, headSha (the headRefOid), state, and isCrossRepository verbatim. If it fails for any reason, return found=false — do not retry with different arguments, search for similarly-numbered PRs, try other repos or remotes, or substitute a branch.
 
 ${REPO_CONTEXT}`, {
   label: 'resolve-pr',
@@ -989,6 +1022,14 @@ if (resolvedPr === null || resolvedPr.found !== true || resolvedPr.number !== PR
 // target no matter how exact the number match is.
 if (resolvedPr.state && resolvedPr.state.toUpperCase() !== 'OPEN') {
   throw new Error(`PR #${PR_NUMBER} is ${resolvedPr.state} — stopping instead of reviewing/pushing to a non-open PR`)
+}
+// This is a review/FIX loop: every round commits and pushes to the PR's head branch. For a fork PR
+// that branch lives in someone else's repository, which the run almost certainly cannot push to and
+// should not assume it may. Failing here is the honest outcome — the alternative is discovering it
+// after the fixes exist, where `git push` with no upstream resolves to `origin` and creates a stray
+// branch on the upstream repo that is not the PR's head and updates nothing.
+if (resolvedPr.isCrossRepository === true) {
+  throw new Error(`PR #${PR_NUMBER}'s head branch ${resolvedPr.headRefName} lives in a fork, and this workflow pushes fix commits to the PR's head branch — it cannot do that across repositories. Review it read-only instead (e.g. the council-review or pr-review skills), or re-run this against a PR whose head branch is in ${REPO_SLUG || 'this repository'}.`)
 }
 const PR_BRANCH = resolvedPr.headRefName
 // The PR's own base ref, used only to compute the review's diff range. Never checked out, never
@@ -1009,7 +1050,7 @@ const worktreeResult = await agent(`Set up an isolated worktree to run review fi
   ? 'The caller has acknowledged that the tree may be dirty, so continue — but leave those changes exactly as they are.'
   : 'If dirtyPaths is not empty, STOP NOW: return what you have and create nothing. Do not stash, commit, or discard anything.'}
 3. Run \`git fetch origin\`.
-4. Create a worktree for the PR head in a fresh temp directory OUTSIDE the repository tree: \`git worktree add <temp dir> ${PR_BRANCH}\`. If ${PR_BRANCH} has no local ref yet, create it tracking the remote head instead: \`git worktree add <temp dir> -b ${PR_BRANCH} origin/${PR_BRANCH}\`. If a stale worktree from an aborted run already holds ${PR_BRANCH}, \`git worktree list\` and \`git worktree remove --force\` it first. If the PR comes from a fork its head lives in another repository — add that fork as a remote and fetch the head from there rather than assuming \`origin\` has it, and say so in detail. Return the absolute worktree path as worktreePath.
+4. Create a worktree for the PR head in a fresh temp directory OUTSIDE the repository tree: \`git worktree add <temp dir> ${PR_BRANCH}\`. If ${PR_BRANCH} has no local ref yet, create it tracking the remote head instead: \`git worktree add <temp dir> -b ${PR_BRANCH} origin/${PR_BRANCH}\`. If a stale worktree from an aborted run already holds ${PR_BRANCH}, \`git worktree list\` and \`git worktree remove --force\` it first. The head branch is known to live in this repository (fork PRs are refused before this step), so \`origin\` has it — if \`origin/${PR_BRANCH}\` does not resolve, stop and report that in detail rather than adding another remote or searching elsewhere for a branch of that name. Return the absolute worktree path as worktreePath.
 5. Prove it: return every absolute path listed by \`git worktree list --porcelain\` in worktreePaths, \`git rev-parse --abbrev-ref HEAD\` run inside the new worktree as worktreeBranch, and the checkout's \`git rev-parse HEAD\` re-read afterwards as repoHeadAfter.
 
 ${REPO_CONTEXT}`,
@@ -1017,6 +1058,7 @@ ${REPO_CONTEXT}`,
     label: 'setup:worktree',
     schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         worktreePath: { type: 'string' },
         detail: { type: 'string' },
@@ -1073,18 +1115,28 @@ if (DIRTY_PATHS.length) {
 // runs. Left implicit, agents reach for `gh pr diff`, which trusts GitHub's cached merge base --
 // and a PR whose base branch has advanced since it was opened can have already-merged base commits
 // reported as its own. The panel then reviews code the author never wrote.
-const HEAD_SHA_FOR_DIFF = resolvedPr.headSha || PR_BRANCH
-if (PR_BASE_BRANCH) {
+// Re-pinned before every review round, not once at setup. The head sha moves each time a fix round
+// pushes, and a range frozen at the pre-fix head is worse than no pin at all: the old sha stays a
+// valid ancestor, so `git diff` still succeeds and silently returns the un-fixed diff, while the
+// accompanying "anything outside that range is not this PR's change" instruction tells the panel to
+// ignore the very commits it is meant to be re-reviewing. Round 2 would re-report round 1's findings
+// verbatim and the loop would burn every round without converging.
+async function pinDiffRange(headShaForDiff, label) {
+  if (!PR_BASE_BRANCH) {
+    log(`PR #${PR_NUMBER} reported no base branch — reviewers will fall back to GitHub's view of the diff, which may include already-merged base commits`)
+    return
+  }
+
   const diffRange = await agent(`Determine the exact diff range for PR #${PR_NUMBER} (head branch ${PR_BRANCH}, base branch ${PR_BASE_BRANCH}). Work only in the run's worktree at ${WORKTREE_PATH} — cd there first, and never run git commands that write in any other checkout.
 
 1. \`git fetch origin\` — the base ref must be current or the merge base is wrong.
-2. \`git merge-base origin/${PR_BASE_BRANCH} ${HEAD_SHA_FOR_DIFF}\` — return the full sha as mergeBaseSha. If the base ref is missing locally, fetch it explicitly (\`git fetch origin ${PR_BASE_BRANCH}\`) and retry; if it still fails, return mergeBaseSha as an empty string and explain in detail.
-3. Using that sha as <merge-base>: return the last line of \`git diff --stat <merge-base>...${HEAD_SHA_FOR_DIFF}\` as diffStat, and the output of \`git diff --name-only <merge-base>...${HEAD_SHA_FOR_DIFF}\` as changedFiles.
+2. \`git merge-base origin/${PR_BASE_BRANCH} ${headShaForDiff}\` — return the full sha as mergeBaseSha. If the base ref is missing locally, fetch it explicitly (\`git fetch origin ${PR_BASE_BRANCH}\`) and retry; if it still fails, return mergeBaseSha as an empty string and explain in detail.
+3. Using that sha as <merge-base>: return the last line of \`git diff --stat <merge-base>...${headShaForDiff}\` as diffStat, and the output of \`git diff --name-only <merge-base>...${headShaForDiff}\` as changedFiles.
 
 Report exactly what the commands printed. Do not infer the range from \`gh pr diff\`, the GitHub UI, or the PR's baseRefOid — those are the values this step exists to bypass. Do not edit, commit, or push anything.
 
 ${REPO_CONTEXT}`, {
-    label: 'setup:diff-range',
+    label,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -1101,18 +1153,19 @@ ${REPO_CONTEXT}`, {
   })
   const mergeBaseSha = diffRange?.mergeBaseSha?.trim() || ''
   if (/^[0-9a-f]{7,40}$/.test(mergeBaseSha)) {
-    DIFF_CONTEXT = diffContext(mergeBaseSha, HEAD_SHA_FOR_DIFF)
+    DIFF_CONTEXT = diffContext(mergeBaseSha, headShaForDiff)
     const fileCount = diffRange.changedFiles?.length
-    log(`Review diff pinned to ${mergeBaseSha.slice(0, 12)}...${HEAD_SHA_FOR_DIFF.slice(0, 12)} (merge base with origin/${PR_BASE_BRANCH})${typeof fileCount === 'number' ? `: ${fileCount} file(s) changed` : ''}${diffRange.diffStat ? ` — ${diffRange.diffStat.trim()}` : ''}`)
+    log(`Review diff pinned to ${mergeBaseSha.slice(0, 12)}...${headShaForDiff.slice(0, 12)} (merge base with origin/${PR_BASE_BRANCH})${typeof fileCount === 'number' ? `: ${fileCount} file(s) changed` : ''}${diffRange.diffStat ? ` — ${diffRange.diffStat.trim()}` : ''}`)
   } else {
     // Not fatal: the reviewers can still compute the range themselves. What must not happen is a
-    // silent fall back to `gh pr diff`, so the instruction to avoid it survives either way.
-    DIFF_CONTEXT = `Authoritative diff for this PR: compute it in the run's worktree with \`git merge-base origin/${PR_BASE_BRANCH} ${HEAD_SHA_FOR_DIFF}\` and review \`git diff <merge-base>...${HEAD_SHA_FOR_DIFF}\`. Do NOT use \`gh pr diff\` or GitHub's "Files changed" view to decide what this PR changed: GitHub's cached merge base goes stale when the base branch advances, so both can present already-merged base commits as this PR's work.`
+    // silent fall back to `gh pr diff`, so the instruction to avoid it survives either way. The head
+    // is named as a sha when we have one, so this fallback tracks the round too.
+    DIFF_CONTEXT = `Authoritative diff for this PR: compute it in the run's worktree with \`git merge-base origin/${PR_BASE_BRANCH} ${headShaForDiff}\` and review \`git diff <merge-base>...${headShaForDiff}\`. Do NOT use \`gh pr diff\` or GitHub's "Files changed" view to decide what this PR changed: GitHub's cached merge base goes stale when the base branch advances, so both can present already-merged base commits as this PR's work.`
     log(`Could not pin the review diff range (merge base with origin/${PR_BASE_BRANCH} unresolved${diffRange?.detail ? `: ${diffRange.detail}` : ''}) — reviewers are instructed to compute it themselves rather than trust \`gh pr diff\``)
   }
-} else {
-  log(`PR #${PR_NUMBER} reported no base branch — reviewers will fall back to GitHub's view of the diff, which may include already-merged base commits`)
 }
+
+await pinDiffRange(resolvedPr.headSha || PR_BRANCH, 'setup:diff-range')
 
 await initializeReport()
 
@@ -1122,6 +1175,10 @@ let verdict = { done: false, findings: [] }
 try {
   while (!verdict.done && round < MAX_ROUNDS) {
     round++
+    // Every previous round ended by pushing and independently verifying a new head, so re-pin the
+    // range to it before the panel runs. report.finalSha is only set from a verified push, so this
+    // never advances the range onto an unverified sha.
+    if (round > 1 && report.finalSha) await pinDiffRange(report.finalSha, `r${round}:diff-range`)
     verdict = await reviewAndJudge(round)
     if (verdict.done) {
       await postReview(round, verdict)
@@ -1161,7 +1218,7 @@ try {
 ${repoContext(REPO_PATH)}`,
     {
       label: 'cleanup:worktree',
-      schema: { type: 'object', properties: { removed: { type: 'boolean' }, detail: { type: 'string' } }, required: ['removed'] },
+      schema: { type: 'object', additionalProperties: false, properties: { removed: { type: 'boolean' }, detail: { type: 'string' } }, required: ['removed'] },
       model: 'haiku',
       effort: 'low',
     })

@@ -47,6 +47,11 @@ in the user's checkout. If a user picks one of those, say so in one line before 
 
 Options: `--no-pr-reporting` maps to `prReporting: false` (`review` only).
 
+`review` and `issue-to-pr` push fix commits to the PR's head branch, so they refuse a PR opened from
+a fork (`gh pr view <n> --json isCrossRepository`). The workflow fails fast on this, but check it
+here when the PR may be external and say so before launching — point the user at a read-only review
+(`council-review`, `pr-review`) instead.
+
 ## Procedure
 
 Run these in order. Steps 4 and 5 are ordered deliberately: a dirty tree is a reason to stop

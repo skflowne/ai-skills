@@ -53,8 +53,13 @@ if (!Number.isInteger(ISSUE_NUMBER) || ISSUE_NUMBER < 1) throw new Error(`issueN
 // genuinely separate, independent agent() for each review gate.
 const MAX_FIX_ROUNDS_PER_GATE = 2
 
+// Every schema below closes with additionalProperties: false, matching the twin in
+// workflows/review-supervised.js. An open schema lets an agent answer alongside the contract
+// instead of inside it — returning a `notes` or `error` field the script never reads, so a partial
+// or refused result validates cleanly and only fails later, somewhere less obvious.
 const ISSUE_RESOLVE_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     found: { type: 'boolean' },
     number: { type: 'number' },
@@ -71,11 +76,16 @@ const ISSUE_RESOLVE_SCHEMA = {
 // schema validation and retrying the abort. The script checks the fields it needs after the call.
 const BRANCH_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     worktreePath: { type: 'string' },
     branch: { type: 'string' },
     baseBranch: { type: 'string' },
     headSha: { type: 'string' },
+    // Free-text outlet, same as the twin's worktree schema. Now that the schema is closed, an agent
+    // that stopped on a dirty tree or hit a fork/stale-worktree snag has nowhere else to say so —
+    // without this it either drops the explanation or fails validation trying to invent a field.
+    detail: { type: 'string' },
     // Evidence.
     repoRoot: { type: 'string' },
     repoBranchBefore: { type: 'string' },
@@ -90,12 +100,14 @@ const BRANCH_SCHEMA = {
 
 const PLAN_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     milestones: {
       type: 'array',
       minItems: 1,
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           title: { type: 'string' },
           description: { type: 'string' },
@@ -113,6 +125,7 @@ const PLAN_SCHEMA = {
 
 const IMPLEMENT_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     commitSha: { type: 'string' },
     summary: { type: 'string' },
@@ -123,11 +136,13 @@ const IMPLEMENT_SCHEMA = {
 
 const FINDINGS_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     findings: {
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
           file: { type: 'string' },
@@ -142,6 +157,7 @@ const FINDINGS_SCHEMA = {
 
 const INTEGRATE_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     success: { type: 'boolean' },
     summary: { type: 'string' },
@@ -151,6 +167,7 @@ const INTEGRATE_SCHEMA = {
 
 const TEST_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     passed: { type: 'boolean' },
     summary: { type: 'string' },
@@ -285,9 +302,14 @@ if (branchResult.repoHeadBefore && branchResult.repoHeadAfter && branchResult.re
   throw new Error(`Setup moved the checkout's HEAD from ${branchResult.repoHeadBefore} to ${branchResult.repoHeadAfter} — it must be left untouched. Restore it with \`git checkout ${branchResult.repoBranchBefore || branchResult.repoHeadBefore}\` before rerunning`)
 }
 
+// The branch this run was actually cut from, and therefore the only correct PR base. Setup reports
+// what it resolved; BASE_BRANCH is the caller's pin. Empty only when neither is known, in which case
+// the ship step cannot assert a base and says so rather than guessing.
+const RESOLVED_BASE_BRANCH = branchResult.baseBranch || BASE_BRANCH || ''
+
 // Everything past this point works in the worktree, so every later prompt must say so.
 REPO_CONTEXT = repoContext(WORKTREE_PATH)
-log(`Worktree verified: ${WORKTREE_PATH} on ${branch} at ${baseSha}, cut from origin/${branchResult.baseBranch || BASE_BRANCH || 'default'}; checkout left on ${branchResult.repoBranchBefore || 'its original branch'} at ${branchResult.repoHeadBefore || 'its original HEAD'}`)
+log(`Worktree verified: ${WORKTREE_PATH} on ${branch} at ${baseSha}, cut from origin/${RESOLVED_BASE_BRANCH || 'default'}; checkout left on ${branchResult.repoBranchBefore || 'its original branch'} at ${branchResult.repoHeadBefore || 'its original HEAD'}`)
 if (DIRTY_PATHS.length) {
   log(`Note: ${DIRTY_PATHS.length} uncommitted change(s) in the checkout are left untouched and are NOT part of ${branch}: ${DIRTY_PATHS.join(', ')}`)
 }
@@ -433,24 +455,52 @@ Validation FAILED — treat these failures as findings to report unless the bran
 )
 log(`Finish review gate: ${finalGate.openFindings.length ? `left ${finalGate.openFindings.length} open finding(s)` : 'clean'} after ${finalGate.fixRounds} fix round(s)`)
 
-// The gate's fix rounds may have repaired the failing suite — refresh the verdict so the returned
-// testsPassed describes what actually ships.
-if (!finalTests.passed && finalGate.fixRounds > 0) {
+// Any fix round rewrites the branch, in either direction: it may have repaired the failing suite, or
+// broken a passing one. The condition is on fixRounds alone for that reason — gating it on
+// !finalTests.passed as well would only ever refresh failures, leaving a run whose gate introduced a
+// regression to report testsPassed: true and skip issue-to-pr's warning entirely.
+if (finalGate.fixRounds > 0) {
+  const passedBefore = finalTests.passed
   finalTests = await runFinishValidation('finish:tests:recheck')
-  log(`Finish validation recheck: ${finalTests.passed ? 'passed' : 'still FAILED'} — ${finalTests.summary}`)
+  // The recheck now runs in both directions, so the log has to name the transition rather than
+  // assume the run arrived here failing.
+  const verdict = finalTests.passed
+    ? (passedBefore ? 'still passing' : 'now passing — the gate repaired it')
+    : (passedBefore ? 'now FAILING — the gate introduced a regression' : 'still FAILING')
+  log(`Finish validation recheck: ${verdict} — ${finalTests.summary}`)
+  if (passedBefore && !finalTests.passed) {
+    log(`Shipping with a failing suite that passed before the review gate — failures: ${finalTests.failures.join('; ')}`)
+  }
 }
 
 phase('Ship')
-const shipped = await agent(`On branch ${branch}, push it and open a PR for ${ISSUE_PIN} (reference/close that exact issue in the PR body). If an open PR already exists for this branch (e.g. from an earlier aborted run), reuse it — return its number and URL instead of creating a duplicate. If PR creation tooling is unavailable, say so explicitly instead of guessing. Return the PR number and URL.
+// --base is spelled out because `gh pr create` defaults to the repository's default branch, not to
+// whatever the branch was cut from. A run based on release/2.0 would otherwise open a PR against
+// main: the diff would carry every commit release/2.0 is ahead by, and merging it would land the
+// work on the wrong branch. It also propagates — review-supervised computes its review range from
+// the PR's own baseRefName, so a wrong base there sends the whole panel at the wrong diff.
+const shipped = await agent(`On branch ${branch}, push it and open a PR for ${ISSUE_PIN} (reference/close that exact issue in the PR body).${RESOLVED_BASE_BRANCH ? `
+
+The PR MUST target \`${RESOLVED_BASE_BRANCH}\` — this branch was cut from it. Pass \`--base ${RESOLVED_BASE_BRANCH}\` explicitly to \`gh pr create\`; do not omit it, because gh then silently targets the repository's default branch instead.` : ''}
+
+If an open PR already exists for this branch (e.g. from an earlier aborted run), reuse it — return its number and URL instead of creating a duplicate.${RESOLVED_BASE_BRANCH ? ` Check its base first with \`gh pr view <n>${GH_REPO_FLAG} --json baseRefName\`; if it targets anything other than \`${RESOLVED_BASE_BRANCH}\`, retarget it with \`gh pr edit <n>${GH_REPO_FLAG} --base ${RESOLVED_BASE_BRANCH}\` before returning.` : ''} If PR creation tooling is unavailable, say so explicitly instead of guessing.
+
+Return the PR number, its URL, and its base branch exactly as \`gh pr view <n>${GH_REPO_FLAG} --json baseRefName\` reports it after the PR exists — read it back from GitHub, do not echo what you passed.
 
 ${REPO_CONTEXT}`,
   {
     label: 'ship:pr',
-    schema: { type: 'object', properties: { prNumber: { type: 'number' }, url: { type: 'string' } }, required: ['prNumber', 'url'] },
+    schema: { type: 'object', additionalProperties: false, properties: { prNumber: { type: 'number' }, url: { type: 'string' }, baseRefName: { type: 'string' } }, required: ['prNumber', 'url'] },
     agentType: 'general-purpose',
   })
 if (shipped === null) throw new Error('ship:pr agent failed — branch is implemented but no PR was opened')
-log(`PR #${shipped.prNumber} opened: ${shipped.url}`)
+// Backstop: the prompt can be ignored, and a PR on the wrong base is worse than no PR — the work is
+// pushed and recoverable, but a review of it would be meaningless. Fail loudly with the one command
+// that fixes it rather than handing a mistargeted PR to the review stage.
+if (RESOLVED_BASE_BRANCH && shipped.baseRefName && shipped.baseRefName !== RESOLVED_BASE_BRANCH) {
+  throw new Error(`PR #${shipped.prNumber} targets ${shipped.baseRefName} but branch ${branch} was cut from ${RESOLVED_BASE_BRANCH} — its diff and any review of it would be against the wrong base. The work is safe on ${branch}; retarget with \`gh pr edit ${shipped.prNumber}${GH_REPO_FLAG} --base ${RESOLVED_BASE_BRANCH}\` and rerun the review stage.`)
+}
+log(`PR #${shipped.prNumber} opened: ${shipped.url}${shipped.baseRefName ? ` (base ${shipped.baseRefName})` : RESOLVED_BASE_BRANCH ? ` (base not read back — expected ${RESOLVED_BASE_BRANCH})` : ''}`)
 
 // Teardown runs only here, on the success path, and only after the branch is pushed — the commits
 // live on the remote by now, so removing the worktree loses nothing. Deliberately NOT in a
@@ -461,7 +511,7 @@ const cleaned = await agent(`Run \`git worktree remove --force ${WORKTREE_PATH}\
 ${repoContext(REPO_PATH)}`,
   {
     label: 'ship:cleanup',
-    schema: { type: 'object', properties: { removed: { type: 'boolean' }, detail: { type: 'string' } }, required: ['removed'] },
+    schema: { type: 'object', additionalProperties: false, properties: { removed: { type: 'boolean' }, detail: { type: 'string' } }, required: ['removed'] },
     model: 'haiku',
     effort: 'low',
   })
