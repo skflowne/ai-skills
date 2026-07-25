@@ -56,6 +56,9 @@ fi
 
 skills_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 workflow_dir="$skills_root/workflows"
+# The retired workflows still run here — this track launches scripts by path, so it never depended on
+# them being registered as skills: entry points. They are unmaintained; prefer the modes above them.
+legacy_workflow_dir="$skills_root/legacy/workflows"
 config_dir="$skills_root/workflows-codex"
 
 case "$mode" in
@@ -64,19 +67,19 @@ case "$mode" in
     args="{\"issueNumber\":$number}"
     ;;
   implement)
-    workflow="$workflow_dir/implement-issue-flow.js"
+    workflow="$legacy_workflow_dir/implement-issue-flow.js"
     args="{\"issueNumber\":$number}"
     ;;
   fast-implement)
-    workflow="$workflow_dir/fast-implement.js"
+    workflow="$legacy_workflow_dir/fast-implement.js"
     args="{\"issueNumber\":$number}"
     ;;
   fast-issue-to-pr)
-    workflow="$workflow_dir/fast-issue-to-pr.js"
+    workflow="$legacy_workflow_dir/fast-issue-to-pr.js"
     args="{\"issueNumber\":$number}"
     ;;
   review)
-    workflow="$workflow_dir/review-fix-loop.js"
+    workflow="$legacy_workflow_dir/review-fix-loop.js"
     args="{\"prNumber\":$number}"
     ;;
   review-supervised|review-lite) # review-lite: pre-rename alias

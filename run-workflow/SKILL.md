@@ -1,6 +1,6 @@
 ---
 name: run-workflow
-description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised, and the fast/legacy variants) with preflighted, validated args. Use whenever the user asks to implement an issue or review a PR through one of these workflows — including in prose, not just as a slash command. Do not call Workflow() for these entry points without going through here.
+description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised) with preflighted, validated args. Use whenever the user asks to implement an issue or review a PR through one of these workflows — including in prose, not just as a slash command. Do not call Workflow() for these entry points without going through here.
 ---
 
 # Run Workflow
@@ -36,14 +36,15 @@ Interpret the arguments following the skill invocation as:
 | `issue-to-pr` | `skills:issue-to-pr` | `{issueNumber, repoSlug, repoPath, baseBranch, allowDirtyTree}` |
 | `implement` | `skills:supervised-implement` | `{issueNumber, repoSlug, repoPath, baseBranch, allowDirtyTree}` |
 | `review` | `skills:review-supervised` | `{prNumber, repoSlug, repoPath, allowDirtyTree, prReporting}` |
-| `fast-implement` | `skills:fast-implement` | `{issueNumber}` |
-| `fast-issue-to-pr` | `skills:fast-issue-to-pr` | `{issueNumber, repoSlug, repoPath}` |
-| `review-full` | `skills:review-fix-loop` | `{prNumber, repoSlug, repoPath}` |
-| `implement-flow` | `skills:implement-issue-flow` | `{issueNumber, repoSlug, repoPath}` |
 
-`issue-to-pr`, `implement`, and `review` are the maintained entry points and the only ones that
-support `baseBranch`/`allowDirtyTree` and worktree isolation. The rest are legacy: they still branch
-in the user's checkout. If a user picks one of those, say so in one line before launching.
+These three are the only entry points. `issue-to-pr` is the composite; the other two are its children,
+runnable on their own. All support `baseBranch`/`allowDirtyTree` and worktree isolation.
+
+The former `fast-implement`, `fast-issue-to-pr`, `review-full`, and `implement-flow` modes are gone.
+Their scripts moved to `legacy/workflows/` and are no longer registered as `skills:` workflows, so
+`Workflow()` cannot launch them. If a user asks for one by name, say it was retired and offer the
+current equivalent: `issue-to-pr` for `fast-issue-to-pr` or `implement-flow`, `implement` for
+`fast-implement`, `review` for `review-full`. Do not try to run a legacy script by path.
 
 Options: `--no-pr-reporting` maps to `prReporting: false` (`review` only).
 
@@ -98,7 +99,7 @@ guarantee when a run is started by cron, by another agent, or on resume, where n
 
 ### 5. Determine the target branch — confirm only when ambiguous
 
-**Skip this entire step for `review` and `review-full`.** A review works from a PR number alone: the
+**Skip this entire step for `review`.** A review works from a PR number alone: the
 PR determines its own head branch, base ref, and head repo. There is nothing to resolve and nothing
 to ask, and `baseBranch` is not a meaningful arg for those workflows. Asking would be pure friction.
 
@@ -147,5 +148,4 @@ work is still there, and only there.
 /run-workflow implement 123 --repo /home/me/projects/example
 /run-workflow review 456
 /run-workflow review 456 --no-pr-reporting
-/run-workflow fast-issue-to-pr 123
 ```

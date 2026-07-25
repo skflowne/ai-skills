@@ -21,11 +21,16 @@ Interpret the arguments following `/skill:codex-workflow` as:
 Modes:
 
 - `issue-to-pr` — complete implementation, open a PR, then run the review/fix loop
+- `review-supervised` — run the lightweight YOLO-only review/fix loop, using the `supervised-forge` skill for fixes (`review-lite` still works as a pre-rename alias)
+
+Legacy modes. Their scripts live in `legacy/workflows/` and are unmaintained; they branch and commit
+in the checkout rather than in an isolated worktree. They still run here because this track launches
+scripts by path, but prefer the two modes above.
+
 - `implement` — implement the issue and open a PR, without the subsequent review/fix loop
 - `fast-implement` — implement the issue with the TDD Forge process and open a PR
 - `fast-issue-to-pr` — run `fast-implement`, then run the review/fix loop
 - `review` — run the full council + YOLO review/fix loop on an existing PR
-- `review-supervised` — run the lightweight YOLO-only review/fix loop, using the `supervised-forge` skill for fixes (`review-lite` still works as a pre-rename alias)
 
 The backend defaults to `openai`. The repository defaults to Pi's current working directory.
 
