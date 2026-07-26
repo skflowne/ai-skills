@@ -86,3 +86,5 @@ Explain the evidence, maintenance impact, and smallest practical fix.
 ```
 
 If there are no actionable findings, say so plainly and mention any verification limitations. Keep the report focused; do not produce a general code walkthrough.
+
+When posting findings to a GitHub PR, follow [github-pr-review](../github-pr-review/SKILL.md): use one consolidated review body rather than inline comments, and group the resolution work into chunks sized for one agent.

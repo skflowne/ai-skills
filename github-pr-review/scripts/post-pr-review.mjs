@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 /**
- * Post a GitHub PR review (summary + inline comments) via gh api.
+ * Post a GitHub PR review via gh api.
  *
  * Usage:
  *   node post-pr-review.mjs <pr-number> < review.json
- *   echo '{"body":"...","comments":[...]}' | node post-pr-review.mjs 62
+ *   echo '{"body":"..."}' | node post-pr-review.mjs 62
  *
  * Payload fields (JSON on stdin):
- *   event    - "COMMENT" | "APPROVE" | "REQUEST_CHANGES" (default: COMMENT)
- *   body     - review summary markdown (required)
- *   comments - array of { path, line, side?, body } (optional)
+ *   event - "COMMENT" | "APPROVE" | "REQUEST_CHANGES" (default: COMMENT)
+ *   body  - consolidated review markdown (required)
  *
  * commit_id and owner/repo are resolved automatically via gh.
  */
@@ -42,7 +41,12 @@ try {
 }
 
 if (!input.body) {
-  console.error('Error: payload must include a "body" string (review summary)');
+  console.error('Error: payload must include a "body" string (consolidated review)');
+  process.exit(1);
+}
+
+if (Object.hasOwn(input, "comments")) {
+  console.error('Error: inline comments are not supported; put all findings in the review "body"');
   process.exit(1);
 }
 
@@ -53,12 +57,6 @@ const payload = {
   commit_id: prMeta.headRefOid,
   event: input.event ?? "COMMENT",
   body: input.body,
-  comments: (input.comments ?? []).map((c) => ({
-    path: c.path,
-    line: c.line,
-    side: c.side ?? "RIGHT",
-    body: c.body,
-  })),
 };
 
 const endpoint = `repos/${repoMeta.nameWithOwner}/pulls/${prNumber}/reviews`;

@@ -81,6 +81,6 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 
 0. Verify what has already been posted on the PR or as part of follow-up issues, unless something is new or has relevant new findings that should be posted as an update, it is irrelevant, therefore do not pollute the summary with it
 1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area. Tag each finding with its cluster and that cluster's classification.
-2. Recommend a fix plan (blockers first, then major, minor, nits). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
+2. Recommend a fix plan (blockers first, then major, minor, nits) and organize it into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
 3. Ask the user if they accept the plan.
-4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post inline comments plus a summary review; create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the comments.
+4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the review.
