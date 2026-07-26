@@ -25,7 +25,7 @@ Reuse the same reviewers throughout. They advise; the primary verifies findings 
 1. Resolve the task, repository state, working/base refs, and whether this is issue work. Complete the preflight and proportional ownership discovery required by the repository before editing.
 2. Surface any repository-defined user decision and wait for the user's answer. Reviewers cannot decide it on the user's behalf.
 3. Plan cohesive, preferably vertical milestones. Give each a coordination label, authoritative owner, acceptance evidence, and review gate. Include conditional migration, documentation, and validation work selected by the repository instructions.
-4. Brief both reviewers with the original task, refs, plan, ownership evidence, and paths to the canonical instructions. Ask them to read those files and identify blocking plan gaps before implementation.
+4. Brief both reviewers with the original task, refs, plan, and ownership evidence. Ask them to identify blocking plan gaps before implementation.
 
 Milestone labels are communication handles only, never commit-message prefixes.
 
