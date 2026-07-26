@@ -1,9 +1,9 @@
 ---
-name: duo-review
+name: drift-review-duo
 description: "Lightweight two-expert review: one correctness-vs-issue-intent reviewer and one drift reviewer in parallel, then aggregate, classify, and hand off. Use for routine PRs where a full council is overkill but both 'does it do what the issue asked' and 'does it erode the codebase' must be checked."
 ---
 
-# Duo Review
+# Drift Review (duo)
 
 Run **two** expert reviewers in parallel — correctness against the issue, and drift against the codebase — then synthesize. The middle ground between a solo pass and a full [council-review](../council-review/SKILL.md): every change gets both questions asked, by reviewers whose incentives don't mix (a correctness reviewer closes findings with patches; a drift reviewer must be free to say the patch is the problem).
 
