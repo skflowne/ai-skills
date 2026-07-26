@@ -1,13 +1,13 @@
 ---
-name: drift-review
-description: "Run a fixed multi-expert panel that hunts AI-agent drift in a PR or branch: duplicated/reimplemented logic, deleted or bypassed shared modules, re-inlined constants, guard stacking on wrong seams, test accretion, and violations of protected docs/conventions. Use when the user asks for a drift review, a slop check, or a review focused on code-quality erosion rather than feature correctness."
+name: drift-review-council
+description: "Run a fixed six-expert panel that checks correctness and hunts AI-agent drift in a PR or branch: implementation-vs-intent, duplicated logic, bypassed shared modules, wrong seams, test accretion, and convention violations. Use when the user asks for a council drift review or a slop check that must also verify feature correctness."
 ---
 
-# Drift Review
+# Drift Review (council)
 
-Run a fixed panel of five drift-hunting experts in parallel, then synthesize their reports.
+Run a fixed panel of six experts in parallel — one correctness expert and five drift-hunting experts — then synthesize their reports.
 
-This is **not** a general code review. It does not judge whether the feature works — it judges whether the change erodes the codebase: reimplementing what exists, deleting what should be reused, inlining what should be shared, guarding what should be redesigned, and accreting what should be split. Use [council-review](../council-review/SKILL.md) or [yolo-council-review](../yolo-council-review/SKILL.md) for correctness/security/UX; use this skill when the goal is drift.
+The correctness expert judges whether the change works and matches the established review intent. The drift experts judge whether it erodes the codebase: reimplementing what exists, deleting what should be reused, inlining what should be shared, guarding what should be redesigned, and accreting what should be split. Use [council-review](../council-review/SKILL.md) or [yolo-council-review](../yolo-council-review/SKILL.md) when security, UI/UX, or other specialist coverage is also needed.
 
 ## Why these lenses
 
@@ -16,7 +16,7 @@ Agent-built codebases drift for economic reasons, not knowledge gaps: rewriting 
 ## Setup
 
 1. Determine the review target: a PR number if given; otherwise the current branch's diff against the main branch.
-2. Fetch the PR details and linked issue(s) if reviewing a PR.
+2. Establish the review intent. For a PR, fetch its details and linked issue(s). For a branch review, use the user's stated goal and acceptance criteria plus branch/commit context. If neither source defines intent, record that limitation and restrict correctness findings to demonstrable internal bugs and regressions.
 3. **Profile the target repo.** Read its `CLAUDE.md` and `AGENTS.md` and extract:
    - **Placement conventions** — where constants, pure logic, and hooks are supposed to live (e.g. `src/constants/`, `src/lib/<domain>.ts`, `src/hooks/`). These define where the duplication expert searches for existing equivalents.
    - **Protected files** — docs agents must not edit (e.g. a user-authored `VOCABULARY.md`), and doc-sync rules (e.g. agent guidance must land in both `CLAUDE.md` and `AGENTS.md`).
@@ -26,13 +26,14 @@ Agent-built codebases drift for economic reasons, not knowledge gaps: rewriting 
 
 ## Expert panel
 
-Spawn **five** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
+Spawn **six** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
 
 ```
-Review {target} for drift — do not post comments anywhere; report your findings to your parent agent instead.
+Review {target} — do not post comments anywhere; report your findings to your parent agent instead.
 
-This is a drift review, not a correctness review. Do not report logic bugs, style nits, or naming preferences unless they fall inside your focus areas. Provide actual evidence for every claim: file/line references, a search result proving an equivalent exists, or git history. A finding you cannot evidence with a concrete location must be discarded, not hedged.
+Stay strictly within your assigned focus. Do not report style nits or naming preferences unless they fall inside that focus. Every finding must include a concise description, a concrete failure scenario, and actual evidence: file/line references, a test result, a search result proving an equivalent exists, git history, or authoritative documentation. A finding you cannot evidence with a concrete location must be discarded, not hedged.
 
+Review goal and acceptance criteria: {intent_context}
 Target repo profile (placement conventions, protected files, limits): {profile}
 
 Your expert role: {role}
@@ -41,23 +42,24 @@ Your focus areas: {focus}
 
 | Expert | Role | Focus areas |
 |--------|------|-------------|
+| **Correctness** | Correctness & behavior reviewer | Logic bugs, edge cases, regressions, and whether the implementation matches the established review goal and acceptance criteria. Run focused tests when they can confirm or reject a finding. Do not review architecture, duplication, or conventions — the five drift experts own those concerns. |
 | **Reuse & duplication** | Reimplementation hunter | For every helper, hook, constant, type, or coordination mechanism the diff **adds**: search the repo (starting from the profile's placement locations) for an existing equivalent, and report duplicates with both file:line locations. Report new hardcoded domain values (durations, bounds, thresholds) that already exist as a named constant or belong in the constants module — and especially sites where two locations use **different fallbacks for the same concept**. Check whether the diff shows any evidence the author looked before writing (imports from shared modules vs parallel local definitions). |
 | **Deletion & bypass** | Shared-module sentinel | Does the diff delete, inline, or route around any shared module, abstraction, or accessor? Check `git log --diff-filter=D` for deleted files under shared locations, direct imports of raw values where an accessor exists, re-exported or copied internals of a shared module, and guards added at call sites that a shared mechanism already provides. Every finding in this lens **escalates** — it is never approved as-is, even when tests stay green, because deleting the shared mechanism is how the last drift cycle started. |
 | **Seam & state ownership** | Root-cause & accretion reviewer | Whether the seams are right, not whether the behavior is right. Report: new guards, flags, refs, sequence counters, in-flight counters, or rollback state added to logic that already has several — name the invariant those guards collectively protect and who owns it (one mechanism, or scattered duplicates?). Hand-rolled async coordination living in UI components instead of an extracted, unit-testable module. Run `git log --name-only` over the touched files and report any recurring across more than two consecutive `fix:` commits. Report components growing past the profile's size limit — or already-oversized components growing at all instead of shrinking. |
 | **Test integrity** | Test-accretion reviewer | New or modified specs that: pin a specific race interleaving or implementation detail through the UI (races belong in unit tests on an extracted machine); duplicate coverage of an invariant an existing spec already proves (name the existing spec); are one-off regression files or named by ticket/PR/review-round instead of behavior; or weaken/delete assertions to get green. Verify each new behavioral spec maps to a user-visible invariant, and fix-driven test changes extend the invariant's existing spec rather than adding a parallel one. |
 | **Conventions & docs** | Protected-docs guardian | Edits to files the profile marks protected (e.g. a user-authored glossary) — any agent edit there is a violation regardless of content. Agent-facing guidance added to only one of the synced doc pair (e.g. `CLAUDE.md` without `AGENTS.md` or vice versa). New code placed against the profile's placement conventions (a constant outside the constants module, pure domain logic inside a component, a hook outside the hooks directory). Deleted or contradicted doc rules. |
 
-Pass each sub-agent the target, the repo profile, and its row from the table above.
+Pass each sub-agent the target, review-intent context, the repo profile, and its row from the table above.
 
 ## Synthesis
 
-Analyze all five reports with a critical mindset — do not accept findings at face value. The panel performs the primary exploration; adjudicate rather than re-reviewing.
+Analyze all six reports with a critical mindset — do not accept findings at face value. The panel performs the primary exploration; adjudicate rather than re-reviewing.
 
 - Cross-check overlapping findings; deduplicate and reconcile severity. Duplication and seam findings frequently describe the same underlying mechanism — merge them into one cluster, don't count them twice.
 - **Verify the "existing equivalent" claims.** A duplication finding is only valid if the claimed original actually exists at the cited location and genuinely covers the new code's need. Behavioral differences between the copies are evidence *for* the finding (drift has already begun), not against it.
-- Drop findings that lack evidence, are speculative, or are correctness/style findings that leaked past the lens boundaries.
+- Drop findings that lack evidence, are speculative, or fall outside the assigned expert's focus.
 - Note where experts disagree and resolve with code/git evidence.
-- Preserve each finding's concise description, concrete evidence, and drift class through deduplication; a finding missing any of these is invalid.
+- Preserve each finding's concise description, failure scenario, concrete evidence, and class through deduplication; a finding missing any of these is invalid.
 
 ## Classification
 
@@ -88,6 +90,6 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 
 1. Check what has already been posted on the PR or filed as follow-up issues; drop anything already recorded unless there is a new discovery worth an update.
 2. Summarize verified findings only (not what's clean), ordered by severity, sectioned by expert lens. Tag each with its cluster and classification. If the repo profile was missing conventions the panel needed, report that gap first.
-3. Recommend a resolution plan in three lists: mechanical fixes (`convention-violation`), patches (`local-bug`), and refactor tasks (`wrong-seam`, each with its invariant named) — never folded together, even when a patch outranks a refactor on severity.
+3. Recommend a resolution plan in three lists: mechanical fixes (`convention-violation`), patches (`local-bug`), and refactor tasks (`wrong-seam`, each with its invariant named) — never folded together, even when a patch outranks a refactor on severity. Within those lists, organize the work into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md).
 4. Ask the user if they accept the plan.
-5. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post inline comments plus a summary review; file `wrong-seam` refactor tasks as follow-up issues (via [github-issue-create](../github-issue-create/SKILL.md)) and reference them in the review.
+5. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. File `wrong-seam` refactor tasks as follow-up issues (via [github-issue-create](../github-issue-create/SKILL.md)) and reference them in the review.

@@ -734,7 +734,7 @@ For each finding, inspect the current remote head${report.finalSha ? ` (expected
 // of throwing at any call site.
 async function postReview(reviewRound, judged, { final = false } = {}) {
   try {
-    const result = await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${reviewRound}'s verified findings, severity-ranked and sectioned by expert area, with complete finder attribution and inline comments where file/line evidence supports them. event: COMMENT.
+    const result = await agent(`Follow the github-pr-review skill to post a review to PR #${PR_NUMBER} summarizing round ${reviewRound}'s verified findings, severity-ranked and sectioned by expert area, with complete finder attribution. Put every finding in one consolidated review body and do not post inline comments. Include a resolution plan grouped into coherent chunks sized for one agent to implement and validate; each chunk must state its scope, dependencies, acceptance criteria, and focused validation. event: COMMENT.
 
 ${REPO_CONTEXT}
 
@@ -903,7 +903,7 @@ ${REPO_CONTEXT}`, {
     if (!report.startingSha) report.startingSha = baseSha
     log(`Round ${round}: dispatching fixes for ${findings.length} finding(s) from ${baseSha}`)
 
-    const grouped = await agent(`Group these PR #${PR_NUMBER} review findings into cohesive fix milestones — batch findings touching the same area/file/concern together, keep unrelated concerns separate. Mark a milestone independent=true only when fixing it will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel and then merged, so when in doubt use independent=false. Return each milestone's exact findings unchanged (do not drop or reword them); do not implement anything yet.
+    const grouped = await agent(`Group these PR #${PR_NUMBER} review findings into cohesive fix milestones sized for one agent to complete in one focused implementation-and-validation run. Each milestone must own one coherent responsibility and produce a reviewable diff. Batch findings that share a root cause, invariant, or dependency boundary; split work that spans unrelated subsystems or requires broad repository context; merge fragments that cannot be implemented or validated independently. Order dependent milestones explicitly and do not create catch-all milestones such as "address remaining findings." Mark a milestone independent=true only when fixing it will not touch any file or concern that any other milestone touches — independent milestones are implemented in parallel and then merged, so when in doubt use independent=false. Return each milestone's exact findings unchanged (do not drop or reword them); do not implement anything yet.
 
 ${REPO_CONTEXT}
 
