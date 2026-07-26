@@ -101,6 +101,10 @@ gh issue comment 82 --body-file comment.md
 | Committing scratch issue drafts | Delete `.agents/tmp/*.md` after create |
 | Wrong shell chaining | One command per `Shell` call when unsure |
 
+## PR review follow-ups
+
+When creating a follow-up from a PR review, apply the title convention defined by [github-pr-review](../github-pr-review/SKILL.md): use `[PR#<number> FU] <title>`.
+
 ## create-issue handoff
 
 When the [create-issue](../create-issue/SKILL.md) interview is complete:

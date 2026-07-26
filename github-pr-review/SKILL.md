@@ -86,6 +86,8 @@ Or JSON with a parent link:
 
 Reference the issue number in the consolidated review body (`Tracked in #<n>.`).
 
+Every PR follow-up issue title must use the format `[PR#<number> FU] <title>` (for example, `[PR#42 FU] Add browser coverage`).
+
 Follow-up issues must also be sized for one agent. When several dependent chunks are needed, follow the parent/child orchestration guidance in [create-issue](../create-issue/SKILL.md).
 
 ## Review body structure
