@@ -38,7 +38,7 @@ Post all verified findings in **one Pull Request Review** through the [Pull Requ
 POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews
 ```
 
-Do not post inline comments, one review per finding, or a sequence of top-level PR comments. Put every finding and the complete resolution plan in the review `body`, using `path:line` references for evidence. The payload also needs `commit_id` (PR head SHA) and `event`: `"COMMENT"` (neutral), `"APPROVE"`, or `"REQUEST_CHANGES"`.
+Do not post inline comments, one review per finding, or a sequence of top-level PR comments. Put every finding and the complete resolution plan in the review `body`, using `path:line` references for evidence. Always submit the review as a normal comment with `event: "COMMENT"`; never use `"REQUEST_CHANGES"` (and do not use `"APPROVE"` for findings reviews).
 
 ### Preferred: Node.js + gh
 
@@ -94,7 +94,22 @@ Follow-up issues must also be sized for one agent. When several dependent chunks
 
 Use this order:
 
-1. **Findings** — verified issues only, ordered by severity. Every finding includes its severity, concise description, concrete failure scenario, evidence, and `path:line` location where applicable.
+1. **Findings** — verified issues only, ordered by severity. Every finding includes its severity, concise description, realistic failure scenario, evidence, and `path:line` location where applicable.
+
+   The failure scenario must meet the standard in [pr-review](../pr-review/SKILL.md): the concrete trigger, the mechanism at the cited line, the **real-world impact on the user**, and how a user reaches that state in normal use. Do not post a finding whose scenario is "could cause unexpected behavior" or that names only a structural smell — drop it from the review body instead of downgrading it to a Nit. For non-user-facing findings, state the realistic edit that will go wrong and the user-visible defect that ships as a result.
+
+   ```markdown
+   ### Major — stale response can overwrite a newer save
+   `src/hooks/useEntry.ts:42`
+
+   **Scenario.** A user edits an entry, saves, then edits again within ~2s (common on slow
+   mobile connections — the save spinner is still up when they type the correction). The first
+   request resolves last and its response is written to state unconditionally.
+   **Impact.** The user's second edit disappears from the UI and is never persisted; they see
+   their old text return with no error, and typically re-type it.
+   **Likelihood.** Any user who corrects a typo right after saving; observed whenever request
+   latency exceeds the edit interval.
+   ```
 2. **Resolution chunks** — group the work by shared root cause, invariant, and dependency boundary. Do not create one chunk per finding when one coherent change resolves several findings.
 3. **Follow-up issues** — link only work that should not be completed in the current PR.
 
@@ -131,5 +146,5 @@ When the user approves the fix plan after a council review:
 
 1. Read this skill.
 2. Build one review body containing all verified findings and agent-sized resolution chunks; do not build inline comments.
-3. Post the body once via `post-pr-review.mjs`.
+3. Post the body once via `post-pr-review.mjs` with `event: "COMMENT"`, never `"REQUEST_CHANGES"`.
 4. Create follow-up issues only for work outside the current PR; size each for one agent and link `#<issue>` in the review body.

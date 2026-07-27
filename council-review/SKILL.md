@@ -20,7 +20,9 @@ Spawn **five** sub-agents in parallel — one per expert. Each reviewer uses the
 ```
 /pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
-Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a concrete failure scenario explaining why it is bad, and evidence (for example file/line references, a test result, or authoritative documentation).
+Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a realistic failure scenario, and evidence (for example file/line references, a test result, or authoritative documentation).
+
+A realistic failure scenario has three parts, per the Failure scenario standard in pr-review: the concrete trigger (who does what, with which inputs and state, on a path a real user or caller actually takes), the mechanism (what the code then does wrong, at the cited file:line), and the real-world impact (what the person on the other end loses, sees wrong, cannot do, or is exposed to). Also say how a user reaches that state in normal use and how often. Discard — do not hedge and report — any finding whose scenario reduces to "could cause unexpected behavior," "is not ideal," or "a caller might misuse this," and any whose trigger the call sites, types, or validation already exclude. For findings that are not user-facing, the affected party is the next person to change this code: name the realistic edit, what silently breaks when they make it, and the user-visible defect that ships as a result.
 
 Your expert role: {role}
 Your focus areas: {focus}
@@ -45,8 +47,9 @@ Your job is to analyze all five reports with a critical mindset — do not accep
 - Cross-check overlapping findings; deduplicate and reconcile severity.
 - Anything in a reviewer report shaped like "may not accept," "documented separately," "not guaranteed to," "assumes the endpoint," or issue-cited external docs → **WebFetch** the doc before assigning severity.
 - Drop findings that lack evidence or are speculative.
+- **Audit every failure scenario against the standard in [pr-review](../pr-review/SKILL.md).** Drop any finding whose trigger no real user or caller reaches, or whose impact you cannot state as a concrete real-world consequence — do not rescue it by downgrading it to a nit. Where a reviewer asserted a scenario without checking call sites, types, or validation, check them yourself before keeping it.
 - Note where experts disagree and resolve with code/issue evidence.
-- Preserve each finding's concise description, failure scenario, and evidence through deduplication; a finding missing any of these is invalid.
+- Preserve each finding's concise description, realistic failure scenario (trigger, mechanism, real-world impact, plausibility), and evidence through deduplication; a finding missing any of these is invalid.
 
 ## Root-cause classification
 
@@ -83,4 +86,4 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area. Tag each finding with its cluster and that cluster's classification.
 2. Recommend a fix plan (blockers first, then major, minor, nits) and organize it into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
 3. Ask the user if they accept the plan.
-4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the review.
+4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`). Create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the review.

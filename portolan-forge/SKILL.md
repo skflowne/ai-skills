@@ -18,6 +18,8 @@ Use one primary author and integrator plus two persistent, independent, read-onl
 
 Reuse the same reviewers throughout. They advise; the primary verifies findings and owns the branch and acceptance evidence.
 
+Every reviewer finding must carry a realistic failure scenario: the trigger a real user or caller actually reaches, the mechanism at the cited `file:line`, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. Findings that are not user-facing name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. A finding whose harm is only "could cause unexpected behavior," or whose trigger the call sites, types, or validation already exclude, is dropped rather than downgraded — and the primary rejects it with that reason if it arrives anyway.
+
 ## Workflow
 
 ### 1. Establish the contract

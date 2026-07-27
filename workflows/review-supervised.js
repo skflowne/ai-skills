@@ -109,7 +109,24 @@ const FINDING_ITEM_SCHEMA = {
     // No maxLength: a hard cap here fails the whole structured-output call when a reviewer writes
     // one sentence too many. Ask for concision in the prompt instead.
     description: { type: 'string', minLength: 1 },
-    failureScenario: { type: 'string', minLength: 1 },
+    // Must be REALISTIC, not merely present: the standard is pr-review's "Failure scenario
+    // standard" — trigger a real user or caller actually reaches, mechanism at the cited line,
+    // and the real-world impact on the user, plus how often it happens in normal use. A finding
+    // that cannot close that chain is dropped, not downgraded to a nit.
+    failureScenario: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'Realistic failure scenario in three parts: (1) trigger — the concrete conditions a real ' +
+        'user or caller actually reaches, with inputs and state; (2) mechanism — what the code ' +
+        'does wrong at the cited file:line; (3) real-world impact — what the user loses, sees ' +
+        'wrong, cannot do, or is exposed to. Add how a user reaches this in normal use and how ' +
+        'often. Not acceptable: "could cause unexpected behavior", "is not ideal", "may break in ' +
+        'the future", or a trigger the call sites, types, or validation already exclude. For ' +
+        'findings that are not user-facing, the affected party is the next person to change this ' +
+        'code: name the realistic edit, what silently breaks when they make it, and the ' +
+        'user-visible defect that ships as a result.',
+    },
     evidence: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1 },
     finders: { type: 'array', items: { type: 'string' }, minItems: 1 },
     // Root-cause classification from the council skills' design-soundness lens. Optional here so
@@ -251,7 +268,16 @@ const FIX_REVIEW_FINDING_SCHEMA = {
   properties: {
     severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
     file: { type: 'string' },
-    description: { type: 'string' },
+    description: {
+      type: 'string',
+      description:
+        'The defect, plus a realistic failure scenario: the concrete trigger a real user or ' +
+        'caller actually reaches, the mechanism at the cited file:line, the real-world impact on ' +
+        'the user, and how often that state occurs in normal use. For findings that are not ' +
+        'user-facing, name the realistic edit that will go wrong and the user-visible defect that ' +
+        'ships as a result. Never "could cause unexpected behavior" or "is not ideal" — omit such ' +
+        'findings entirely.',
+    },
   },
   required: ['severity', 'description'],
 }
@@ -610,7 +636,9 @@ Provide actual evidence for every claim. Do not rely on unlikely hypotheticals. 
 Your expert role: ${expert.role}
 Your focus areas: ${expert.focus}
 
-For every finding include severity, concise description, concrete failure scenario, and evidence. Identify it as found by your exact expert role.`
+For every finding include severity, concise description, realistic failure scenario, and evidence. Identify it as found by your exact expert role.
+
+A realistic failure scenario has three parts: the concrete trigger (who does what, with which inputs and state, on a path a real user or caller actually takes), the mechanism (what the code then does wrong, at the cited file:line), and the real-world impact (what the person on the other end loses, sees wrong, cannot do, or is exposed to). Also say how a user reaches that state in normal use and how often. Discard — do not hedge, downgrade to a nit, and report anyway — any finding whose scenario reduces to "could cause unexpected behavior," "is not ideal," or "a caller might misuse this," and any whose trigger the call sites, types, or validation already exclude. For findings that are not user-facing, the affected party is the next person to change this code: name the realistic edit, what silently breaks when they make it, and the user-visible defect that ships as a result.`
 }
 
 // The tailored panel doesn't change shape between fix iterations of the same PR, so the roster
@@ -661,7 +689,9 @@ Drop any finding whose evidence sits outside the diff range above — it belongs
 
 ${completedReports.map(({ expert, result }) => `### ${expert.role}\nFocus: ${expert.focus}\n${result}`).join('\n\n')}
 
-Set done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding with severity, area, file, concise description, concrete failureScenario, non-empty evidence, and all expert-role finders; nits may be omitted.
+Set done=true only if no blocker, major, or minor remains. Otherwise return every actionable finding with severity, area, file, concise description, realistic failureScenario, non-empty evidence, and all expert-role finders; nits may be omitted.
+
+Audit every failureScenario before returning it: it must name the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user, plus how often that state occurs in normal use. Drop any finding whose trigger no real user or caller reaches, or whose impact you cannot state as a concrete real-world consequence — drop it outright rather than downgrading it to a nit. Where a reviewer asserted a scenario without checking call sites, types, or validation, check them yourself before keeping it. For findings that are not user-facing, the scenario must name the realistic edit that will go wrong and the user-visible defect that ships as a result.
 
 Apply the skill's mandatory root-cause classification before returning: cluster the surviving findings by shared root cause and set 'rootCause' on every finding to 'local-bug' or 'wrong-seam'. Every 'wrong-seam' finding must also carry 'invariant' — the one-sentence invariant that has no single owner. Do not downgrade a cluster to 'local-bug' because the patch would be smaller or the round is late.`, {
     phase: 'Judge',
@@ -770,6 +800,8 @@ function actionableFix(findings) {
 // propagate structural changes to the twin by hand.
 async function requestFixReview(label, subject, context) {
   const review = await agent(`Act as an independent correctness reviewer verifying a fix for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this fix and have no prior context beyond this message. Inspect the actual commit(s) on the branch yourself — do not trust the implementer's own description of what changed. Confirm the original findings are genuinely resolved and no regression was introduced. Report concrete findings with evidence and exact file references; return no findings if it's clean.
+
+Every finding's description must carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. If the finding is not user-facing, name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. Return no finding whose harm is only "could cause unexpected behavior" or "is not ideal", and none whose trigger the call sites, types, or validation already exclude — drop it rather than reporting it as a nit, since every reported finding costs another fix round.
 
 ${REPO_CONTEXT}
 

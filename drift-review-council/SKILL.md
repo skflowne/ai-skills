@@ -31,7 +31,11 @@ Spawn **six** sub-agents in parallel — one per expert. Each reviewer uses the 
 ```
 Review {target} — do not post comments anywhere; report your findings to your parent agent instead.
 
-Stay strictly within your assigned focus. Do not report style nits or naming preferences unless they fall inside that focus. Every finding must include a concise description, a concrete failure scenario, and actual evidence: file/line references, a test result, a search result proving an equivalent exists, git history, or authoritative documentation. A finding you cannot evidence with a concrete location must be discarded, not hedged.
+Stay strictly within your assigned focus. Do not report style nits or naming preferences unless they fall inside that focus. Every finding must include a concise description, a realistic failure scenario, and actual evidence: file/line references, a test result, a search result proving an equivalent exists, git history, or authoritative documentation. A finding you cannot evidence with a concrete location must be discarded, not hedged.
+
+A realistic failure scenario has three parts, per the Failure scenario standard in pr-review: the concrete trigger (who does what, with which inputs and state, on a path a real user or caller actually takes), the mechanism (what the code then does wrong, at the cited file:line), and the real-world impact (what the person on the other end loses, sees wrong, cannot do, or is exposed to). Also say how a user reaches that state in normal use and how often. Discard — do not hedge and report — any finding whose scenario reduces to "could cause unexpected behavior," "is not ideal," or "a caller might misuse this," and any whose trigger the call sites, types, or validation already exclude.
+
+Most drift findings are not directly user-facing, and that is not an exemption: the affected party is the next agent or developer to change this code. Name the realistic edit they will make (fixing a bug in one of the duplicated copies, changing the domain constant, adding the next guard), what silently breaks or is missed when they make it (the second copy keeps the old behavior, the two fallbacks disagree, the invariant the deleted abstraction owned goes unenforced), and the user-visible defect that reaches production as a result — a wrong duration shown, a stale value overwriting a newer save, a flow that intermittently fails. "This is duplicated" or "this violates the convention" without that chain is not a finding.
 
 Review goal and acceptance criteria: {intent_context}
 Target repo profile (placement conventions, protected files, limits): {profile}
@@ -58,8 +62,9 @@ Analyze all six reports with a critical mindset — do not accept findings at fa
 - Cross-check overlapping findings; deduplicate and reconcile severity. Duplication and seam findings frequently describe the same underlying mechanism — merge them into one cluster, don't count them twice.
 - **Verify the "existing equivalent" claims.** A duplication finding is only valid if the claimed original actually exists at the cited location and genuinely covers the new code's need. Behavioral differences between the copies are evidence *for* the finding (drift has already begun), not against it.
 - Drop findings that lack evidence, are speculative, or fall outside the assigned expert's focus.
+- **Audit every failure scenario against the standard in [pr-review](../pr-review/SKILL.md).** Drop any finding whose trigger no real user, caller, or future edit reaches, or whose impact you cannot trace to a concrete real-world consequence. A drift finding that names only the structural smell — "duplicated," "wrong location," "bypasses the shared module" — without the edit-goes-wrong chain and the user-visible defect it produces is incomplete: send it back through the chain yourself, and drop it if the chain does not close.
 - Note where experts disagree and resolve with code/git evidence.
-- Preserve each finding's concise description, failure scenario, concrete evidence, and class through deduplication; a finding missing any of these is invalid.
+- Preserve each finding's concise description, realistic failure scenario (trigger, mechanism, real-world impact, plausibility), concrete evidence, and class through deduplication; a finding missing any of these is invalid.
 
 ## Classification
 
@@ -92,4 +97,4 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 2. Summarize verified findings only (not what's clean), ordered by severity, sectioned by expert lens. Tag each with its cluster and classification. If the repo profile was missing conventions the panel needed, report that gap first.
 3. Recommend a resolution plan in three lists: mechanical fixes (`convention-violation`), patches (`local-bug`), and refactor tasks (`wrong-seam`, each with its invariant named) — never folded together, even when a patch outranks a refactor on severity. Within those lists, organize the work into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md).
 4. Ask the user if they accept the plan.
-5. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. File `wrong-seam` refactor tasks as follow-up issues (via [github-issue-create](../github-issue-create/SKILL.md)) and reference them in the review.
+5. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`). File `wrong-seam` refactor tasks as follow-up issues (via [github-issue-create](../github-issue-create/SKILL.md)) and reference them in the review.

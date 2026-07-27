@@ -164,7 +164,16 @@ const FINDINGS_SCHEMA = {
         properties: {
           severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
           file: { type: 'string' },
-          description: { type: 'string' },
+          description: {
+            type: 'string',
+            description:
+              'The defect, plus a realistic failure scenario: the concrete trigger a real user or ' +
+              'caller actually reaches, the mechanism at the cited file:line, the real-world ' +
+              'impact on the user, and how often that state occurs in normal use. For findings ' +
+              'that are not user-facing, name the realistic edit that will go wrong and the ' +
+              'user-visible defect that ships as a result. Never "could cause unexpected ' +
+              'behavior" or "is not ideal" — omit such findings entirely.',
+          },
         },
         required: ['severity', 'description'],
       },
@@ -205,6 +214,8 @@ function actionable(findings) {
 // structural changes to the twin by hand.
 async function requestReview(label, subject, context) {
   const review = await agent(`Act as an independent correctness reviewer for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this code and have no prior context beyond this message. Inspect the actual commits/diff on the branch yourself -- do not trust the implementer's own description of what changed. Report concrete correctness, regression, and behavior findings with evidence and exact file references. Return no findings if it's clean.
+
+Every finding's description must carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. If the finding is not user-facing, name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. Return no finding whose harm is only "could cause unexpected behavior" or "is not ideal", and none whose trigger the call sites, types, or validation already exclude — drop it rather than reporting it as a nit, since every reported finding costs another fix round.
 
 ${REPO_CONTEXT}
 

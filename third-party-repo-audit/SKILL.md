@@ -80,6 +80,13 @@ Classify every finding as one of:
 - **CLEAN** — swept and accounted for; say what you checked, not just "looks fine."
 
 Report as a flat list, most severe first: `file:line`, the primitive matched, and one sentence on why
-it is or isn't accounted for. End with an overall verdict for the repo as a whole and what — if
+it is or isn't accounted for.
+
+Every MALICIOUS or SUSPICIOUS finding also needs a realistic impact statement: what actually triggers
+the behavior (install, import, first run, a specific flag), what the attacker concretely gets (which
+file, credential, or environment variable leaves the machine, and to which host), and what that costs
+the person running this code — repo pushed to under their identity, cloud account billed, production
+secrets rotated. "Could be dangerous" is not an impact statement; if you cannot name what leaves and
+where it goes, the finding is SUSPICIOUS with that gap stated, not MALICIOUS. End with an overall verdict for the repo as a whole and what — if
 anything — you were not able to verify (e.g. "did not rebuild from source to diff against the
 committed bundle").

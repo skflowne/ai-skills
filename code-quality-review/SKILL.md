@@ -49,7 +49,8 @@ Treat correctness, performance, and security findings as in scope only when they
 Every finding must:
 
 - Point to specific file and line locations.
-- Explain the concrete maintenance cost or likely failure mode.
+- Carry a **realistic failure scenario**, per the standard in [pr-review](../pr-review/SKILL.md). Quality findings are rarely user-facing, and that is not an exemption — the affected party is the next person to change this code. Name the realistic edit they will make, what silently breaks or is missed when they make it, and the user-visible defect that reaches production as a result. "This is duplicated," "this is hard to follow," or "this couples two modules" without that chain is a style opinion, not a finding.
+- State plausibility: is this edit one someone will make in the normal course of work on this area, or one that requires an unlikely turn? Say which.
 - Show why the current repository context makes it a problem.
 - Propose the smallest reasonable improvement.
 
@@ -57,6 +58,7 @@ Do not report:
 
 - Personal style preferences already handled by formatters or linters
 - Hypothetical future needs without present evidence
+- Findings whose only stated harm is "could cause unexpected behavior," "is not ideal," or "may break in the future" — if you cannot name what breaks and for whom, drop the finding rather than hedging it or filing it as Low
 - Large rewrites when a local simplification is sufficient
 - Generic requests to add comments, tests, or abstractions
 - Findings based only on a code snippet when call sites or nearby patterns could resolve the concern
@@ -82,9 +84,11 @@ List verified findings in severity order:
 ### [Medium] Concise problem title
 `path/to/file.ts:42-58`
 
-Explain the evidence, maintenance impact, and smallest practical fix.
+Explain the evidence, then the realistic failure scenario: the edit someone will make, what breaks
+or is silently missed when they make it, the user-visible defect that results, and how likely that
+edit is. Close with the smallest practical fix.
 ```
 
 If there are no actionable findings, say so plainly and mention any verification limitations. Keep the report focused; do not produce a general code walkthrough.
 
-When posting findings to a GitHub PR, follow [github-pr-review](../github-pr-review/SKILL.md): use one consolidated review body rather than inline comments, and group the resolution work into chunks sized for one agent.
+When posting findings to a GitHub PR, follow [github-pr-review](../github-pr-review/SKILL.md): use one consolidated review body rather than inline comments, and group the resolution work into chunks sized for one agent. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`).

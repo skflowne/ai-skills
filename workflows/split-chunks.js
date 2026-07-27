@@ -150,7 +150,16 @@ const FINDINGS_SCHEMA = {
         properties: {
           severity: { type: 'string', enum: ['blocker', 'major', 'minor', 'nit'] },
           file: { type: 'string' },
-          description: { type: 'string' },
+          description: {
+            type: 'string',
+            description:
+              'The defect, plus a realistic failure scenario: the concrete trigger a real user or ' +
+              'caller actually reaches, the mechanism at the cited file:line, the real-world ' +
+              'impact on the user, and how often that state occurs in normal use. For findings ' +
+              'that are not user-facing, name the realistic edit that will go wrong and the ' +
+              'user-visible defect that ships as a result. Never "could cause unexpected ' +
+              'behavior" or "is not ideal" — omit such findings entirely.',
+          },
         },
         required: ['severity', 'description'],
       },
@@ -333,7 +342,9 @@ ${TASK_CONTEXT || '(none supplied)'}
 
 ${context}
 
-Report concrete correctness and regression findings ranked by severity, each with exact file and line references. Also apply a standing duplication-and-deletion lens: code that reimplements an existing shared module or re-inlines an existing constant is a finding, and any deletion, inlining, or bypass of a shared module or accessor is a blocker regardless of whether tests stay green. Verify the claimed red-green observation actually happened rather than taking the summary's word for it. A finding you cannot evidence with a concrete location must be omitted.`,
+Report concrete correctness and regression findings ranked by severity, each with exact file and line references. Also apply a standing duplication-and-deletion lens: code that reimplements an existing shared module or re-inlines an existing constant is a finding, and any deletion, inlining, or bypass of a shared module or accessor is a blocker regardless of whether tests stay green. Verify the claimed red-green observation actually happened rather than taking the summary's word for it. A finding you cannot evidence with a concrete location must be omitted.
+
+Every finding's description must also carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. For duplication and deletion findings the affected party is the next person to change this code: name the realistic edit they will make, what silently breaks when they make it (the second copy keeps the old behavior, the invariant the deleted module owned goes unenforced), and the user-visible defect that ships as a result. Omit any finding whose harm is only "could cause unexpected behavior" or "is not ideal", and any whose trigger the call sites, types, or validation already exclude — omit it rather than reporting it as a nit, since every reported finding costs another fix round.`,
       { label: `${tag}:review${round ? `-r${round}` : ''}`, phase: 'Chunks', schema: FINDINGS_SCHEMA, agentType: 'general-purpose' })
 
     openFindings = review === null ? [] : actionable(review.findings)
