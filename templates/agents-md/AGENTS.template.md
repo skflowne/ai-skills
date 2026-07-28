@@ -19,6 +19,21 @@ Read [`ENGINEERING.md`](./ENGINEERING.md) before adding or relocating a <MODULE_
 - No non-test <SOURCE_EXT> file may exceed <LINE_CAP> lines. Pre-existing oversized files may not grow; split by responsibility, never into generic <JUNK_DRAWER_NAMES> buckets.
 - Comments are exceptional: explain only non-obvious invariants, safety constraints, or dependency behavior and why they matter. Never narrate obvious code, tasks, issues, reviews, phases, temporary reasoning, or implementation history. <MODULE_WORD> docs may state current contracts and ownership.
 
+## Secrets and sensitive files
+
+- Never read, display, search, diff, parse, summarize, copy, or edit files matching
+  <SECRET_FILE_PATTERNS>. Exclude them from recursive searches, bulk file reads, tool context, logs,
+  diagnostics, and generated artifacts. Being ignored by Git does not make a file safe to read.
+- Do not inspect process environments, credential stores, shell history, deployment state, or
+  external secret managers to discover a value. Do not ask a maintainer to paste a secret into chat,
+  a command, a test, or a temporary file.
+- Work from sanitized example files, schemas, key names, and documented interfaces. When a task
+  requires a real secret or a change to a forbidden file, prepare the non-secret code or template
+  change and ask the maintainer to perform the secret-bearing step.
+- If a secret appears unexpectedly, stop the command or inspection. Do not repeat or transform the
+  value. Report only the affected path or key name, keep it out of commits and other artifacts, and
+  follow <SECRET_INCIDENT_PROCEDURE>.
+
 ## Verification
 
 Assume an independent reviewer will verify every change and completion claim against the request, these rules, the final diff, and actual command output. Rule violations, skipped validation, and unsupported claims will be rejected.
@@ -53,6 +68,13 @@ ADAPTATION NOTES — delete this block once resolved.
                          everywhere is not a rule. Portolan uses 400 for Go.
 <JUNK_DRAWER_NAMES>      "`helpers.go`, `utils.go`, `misc.go`" / "`utils.ts`, `helpers.ts`, `misc.ts`"
 <STDLIB_OR_BASELINE>     "the standard library" / "the existing framework primitives"
+<SECRET_FILE_PATTERNS>   explicit denylist agreed with the maintainer, e.g. "`.env`, `.env.*`
+                         except `.env.example`; `secrets/**`; `*.pem`; `*.key`; deployment
+                         credential files". Include generated and local-only secret locations.
+<SECRET_INCIDENT_PROCEDURE>
+                         repository-specific response, including who to notify and when exposed
+                         credentials must be rotated. If none exists, say to stop and notify the
+                         maintainer immediately.
 
 The gate block is the highest-leverage part of this file. Every command must be one an agent can
 paste and whose output it can quote. Do not list a command that requires manual setup or that

@@ -46,7 +46,8 @@ snapping to another once settings load` is not.
 1. Copy the four `*.template.md` files into the repo, dropping `.template`.
 2. Have a maintainer and agent walk through the placeholders together. Interview for the repository's
    actual ownership boundaries, architectural constraints, testing layers, recurring failure modes,
-   verification commands, and documentation sources of truth.
+   verification commands, documentation sources of truth, secret-bearing paths, and secret incident
+   procedure.
 3. Resolve every `<PLACEHOLDER>`. Grep for `<` when done — none should remain.
 4. Delete sections that do not apply. An inapplicable rule teaches agents that rules are optional.
 5. Fill the ownership table in `ENGINEERING.md` from the real dependency graph, not from intent.
