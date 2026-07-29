@@ -1,11 +1,11 @@
 ---
 name: paseo-issue-to-pr-lite
-description: Implement a GitHub issue through Paseo with Supervised Forge, then repeat fresh drift-review-duo rounds whose worthwhile agent-sized chunks are each fixed by one independently supervised Paseo agent until a duo finds nothing valuable left.
+description: Implement a GitHub issue through Paseo with Supervised Forge, then repeat fresh drift-review-duo rounds whose worthwhile agent-sized chunks are each handled by one steered Supervised Chunk agent until a duo finds nothing valuable left.
 ---
 
 # Paseo Issue to PR Lite
 
-Own an issue through a verified open PR with bounded agent contexts. Use [paseo](../paseo/SKILL.md) for every workspace, [supervised-forge](../supervised-forge/SKILL.md) for the initial implementation and every fix chunk, [drift-review-duo](../drift-review-duo/SKILL.md) for assembled-branch reviews, and [github-pr-review](../github-pr-review/SKILL.md) to publish each review round.
+Own an issue through a verified open PR with bounded agent contexts. Use [paseo](../paseo/SKILL.md) for every workspace, [supervised-forge](../supervised-forge/SKILL.md) for the initial implementation, [supervised-chunk](../supervised-chunk/SKILL.md) for every fix chunk, [drift-review-duo](../drift-review-duo/SKILL.md) for assembled-branch reviews, and [github-pr-review](../github-pr-review/SKILL.md) to publish each review round.
 
 The user preauthorizes this workflow to make implementation, review, and fix decisions. Do not request approval unless work reaches a genuine product or repository-policy decision that repository evidence cannot resolve. Stop only for a hard external blocker, unsafe irreversible action outside the requested issue/PR lifecycle, or ambiguous live-writer state that remains after Paseo recovery.
 
@@ -64,9 +64,9 @@ A round is clear only when no verified worthwhile findings remain.
 
 Publish the round through `github-pr-review` as one `COMMENT` review before starting its fixers. Include the final agent-sized chunk plan and concise reasons for dropped candidates, not raw reviewer output. For a clear round, post `Fix plan: None`.
 
-## 4. Supervise one fixer per chunk
+## 4. Run one steered fixer per chunk
 
-For every worthwhile resolution chunk, create exactly one fresh Paseo worktree, branch, and fixer agent. Each prompt begins with `/skill:supervised-forge` and includes:
+For every worthwhile resolution chunk, create exactly one fresh Paseo worktree, branch, and fixer agent. Each prompt begins with `/skill:supervised-chunk` and includes:
 
 - the original issue and PR;
 - review permalink and round number;
@@ -75,17 +75,17 @@ For every worthwhile resolution chunk, create exactly one fresh Paseo worktree, 
 - dependencies and neighboring chunks it must not absorb; and
 - relevant repository decisions and constraints.
 
-Explicitly override Supervised Forge's normal issue handoff:
+Require the fixer to:
 
-- Paseo already created the worktree; do not create a nested worktree;
-- implement and review this chunk only;
-- the persistent Supervised Forge correctness reviewer is this chunk's independent solo reviewer;
-- continue writer-reviewer correction until the chunk is clear;
-- commit and push the chunk branch;
-- do not open another PR, edit the existing PR, merge, or integrate other chunks; and
-- return a compact handoff with base/head SHAs, commits, invariant, validation, solo-review outcome, decisions, and artifact paths.
+- use the Paseo-created worktree without creating a nested worktree;
+- implement this chunk continuously rather than pre-slicing it into milestones;
+- use one persistent read-only reviewer for event-driven in-progress checks, evidence-backed steering, and final clearance;
+- keep every checkpoint and correction inside the exact chunk contract;
+- commit and push the cleared chunk branch;
+- avoid opening another PR, editing the existing PR, merging, or integrating other chunks; and
+- return a compact handoff with base/head SHAs, commits, invariant, validation, checkpoint steering and decisions, final reviewer outcome, and artifact paths.
 
-Do not run another solo review after all chunks finish. Independent solo verification happens inside each supervised chunk; the next branch-wide review is the assembled duo.
+Do not run another solo review after all chunks finish. Independent solo supervision happens inside each `supervised-chunk` run; the next branch-wide review is the assembled duo.
 
 ### Scheduling
 
@@ -107,16 +107,16 @@ The integrator is the issue workspace's sole writer. It must:
 - push the updated issue branch; and
 - return a compact integration handoff and decision log.
 
-The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh supervised reconciliation chunk. Once all chunks and dependency waves are integrated and validated, retire the integrator using Paseo's process-level checks.
+The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh `supervised-chunk` reconciliation agent. Once all chunks and dependency waves are integrated and validated, retire the integrator using Paseo's process-level checks.
 
 ## 6. Repeat until nothing valuable remains
 
 Run a fresh full `drift-review-duo` against the assembled PR after all selected chunks are integrated. Never substitute per-chunk reviews for this assembled check.
 
-- If the duo finds worthwhile work, publish its chunk plan and repeat supervised chunk dispatch, integration, assembled validation, and a fresh duo.
+- If the duo finds worthwhile work, publish its chunk plan and repeat `supervised-chunk` dispatch, integration, assembled validation, and a fresh duo.
 - If the duo finds nothing worthwhile, verify required CI and leave the PR open for human review.
 
-Do not impose an arbitrary review-round limit. Repeated findings against the same invariant are evidence of a wrong seam: assign one supervised reconciliation chunk to the invariant rather than stacking another local guard. Stop only when the PR is clear by the worthwhile-work standard or a hard blocker prevents safe progress.
+Do not impose an arbitrary review-round limit. Repeated findings against the same invariant are evidence of a wrong seam: assign one `supervised-chunk` reconciliation agent to the invariant rather than stacking another local guard. Stop only when the PR is clear by the worthwhile-work standard or a hard blocker prevents safe progress.
 
 ## 7. Final handoff and cleanup
 
