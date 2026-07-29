@@ -26,19 +26,22 @@ Use the `paseo` CLI to launch durable coding-agent sessions without moving or di
 
    Honor the repository's agent/worktree instructions and check whether another active agent already owns the same invariant or branch.
 
-3. Read `paseo run --help` instead of assuming flags. Paseo is versioned independently and its CLI can change.
+3. Read `paseo run --help` instead of assuming flags. Paseo is versioned independently and its CLI can change. Every launch requires an explicit `--provider`; confirm the accepted provider syntax before launching.
 
 4. Split parallel work by complete invariants, not files. Each writer must own one concern end to end. If two tasks need to own the same invariant, shared abstraction, or integration decision, do not launch them as independent parallel writers.
 
 ## Launch isolated agents
 
-For concurrent writers, create one Paseo-managed worktree workspace per agent. Create the workspaces sequentially to avoid concurrent Git worktree locks; use `--background` so the agents run in parallel after launch.
+Every new task must run in a new Paseo-managed workspace. Never launch a new task directly in the user's current checkout or reuse another task's workspace. Reuse an existing workspace only for an explicit follow-up to the same task and branch.
+
+Create one worktree workspace per new coding task with `--new-workspace worktree`. For concurrent writers, create the workspaces sequentially to avoid concurrent Git worktree locks; use `--background` so the agents run in parallel after launch.
 
 ```bash
 paseo run \
   --background \
   --json \
   --title "<short task title>" \
+  --provider <provider-or-provider/model> \
   --new-workspace worktree \
   --worktree-mode branch-off \
   --worktree-slug <unique-worktree-slug> \
@@ -48,9 +51,9 @@ paseo run \
   "/skill:<skill-name> <complete task brief>"
 ```
 
-Use `--worktree-mode checkout-branch` with `--branch`, or `checkout-pr` with `--pr-number`, only when the task specifically needs an existing branch or PR checkout. Prefer `branch-off` for implementation.
+Use `--worktree-mode checkout-branch` with `--branch`, or `checkout-pr` with `--pr-number`, only when the new task specifically needs an existing branch or PR checkout; these modes must still be combined with `--new-workspace worktree`. Prefer `branch-off` for implementation.
 
-Omit `--provider`, `--model`, and `--thinking` unless the user requests them or the task requires a known provider. When explicitly matching the current Pi session, inspect `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL` first and pass a provider/model combination accepted by `paseo run --help`.
+Always pass `--provider`; Paseo requires an explicit provider for every launch. Use the provider requested by the user, or inspect `PI_PROVIDER` when matching the current Pi session, and ensure its syntax is accepted by `paseo run --help`. Omit `--model` and `--thinking` unless the user requests them or the task requires specific values; inspect `PI_MODEL` and `PI_REASONING_LEVEL` before explicitly matching the current Pi session.
 
 ### Task brief requirements
 
