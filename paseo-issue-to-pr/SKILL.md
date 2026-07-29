@@ -21,7 +21,7 @@ Stop only for a hard external blocker such as unavailable credentials, an inacce
 
 Require an issue number. Resolve the repository, authenticated GitHub identity, default or explicitly stacked base, clean-tree state, active Paseo agents, and current `paseo run --help`; verify issue scope and repository instructions rather than asking for facts that can be inspected. Leave unrelated dirty work untouched and branch from the selected committed base, recording anything excluded from the run.
 
-Create one Paseo worktree branch for the issue and launch an agent whose prompt begins with `/skill:portolan-forge`. Record every workflow-owned agent's ID, workspace, branch, role, and expected lifecycle state so later recovery and cleanup can reconcile the complete fleet. Explicitly require the implementation agent to:
+Create one Paseo worktree branch for the issue and launch an agent whose prompt begins with `/skill:portolan-forge`. Record every workflow-created workspace, including one left behind by a failed agent launch, and every workflow-owned agent's ID, workspace, canonical path, branch, role, and expected lifecycle state so later recovery and cleanup can reconcile the complete fleet. Explicitly require the implementation agent to:
 
 - implement the complete issue;
 - follow `codegraph-evaluation` and commit its `.codegraph-evals/<UTC-timestamp>-issue-<number>-<task>.md` report;
@@ -43,6 +43,15 @@ The original issue workspace must have exactly one active writer. If the integra
 ## 2. Drift review
 
 Run `drift-review-duo` against the PR in a separate Paseo worktree. Do not let the review agent edit the branch or post directly. Run it in the foreground with `--output-schema` so its findings and resolution chunks are machine-readable; Paseo does not support structured output together with `--background`.
+
+Treat review-workspace isolation as a pre-execution gate, not something inferred from a workspace ID or checked after review:
+
+1. Build and locally parse the output schema before creating a workspace. Use only schema constructs supported by the installed Paseo version; omit `$schema` unless current Paseo documentation confirms that URI. A schema rejection after workspace creation is a failed launch, not permission to reuse the resulting workspace blindly.
+2. Create the review workspace separately with `paseo workspace create`, using `branch-off` from the fetched latest PR head and a unique review-only branch and `--worktree-slug` containing the PR number, round, and a collision-resistant suffix. Do not rely on `checkout-pr`'s implicit branch-derived workspace name.
+3. Before starting an agent, inspect `paseo workspace ls --json`, `git worktree list`, and the workspace's branch and canonical path. The path must exist exactly once in Paseo's workspace registry, differ from the issue integrator and every fixer workspace, and point at the expected PR-head commit with a clean tree. Only then start the review with `paseo run --workspace <verified-id>`.
+4. If workspace or agent creation fails, inspect the workspace, agent registry, and live processes before retrying. Never run a review in a workspace produced by a failed combined create-and-run attempt. Archive an orphan only after proving its path is not shared; two workspace IDs resolving to one canonical path is a control-plane collision, so quarantine them, preserve the implementation workspace, and create a freshly named review workspace. If uniqueness still cannot be established, stop as an infrastructure blocker.
+
+Create exactly one review agent for each round after this gate passes. Record failed pre-execution attempts separately; they are not review rounds. Never launch a compensating review merely because isolation was checked only after an agent returned—the gate must prevent that agent from starting.
 
 Require each verified finding to include severity, classification, invariant when applicable, evidence, realistic impact, dependencies, affected paths, and a cohesive agent-sized resolution chunk. The reviewer must not ask for plan approval.
 
@@ -98,6 +107,6 @@ Post one final PR comment using the following template. Include validation, Code
 
 If the workflow resumes, update its existing report comment rather than posting duplicates. Leave the PR body unchanged.
 
-Before declaring completion, reconcile the workflow's agent registry. Inspect every implementation, fixer, integrator, and review agent; verify that no obsolete workflow-owned provider or child process remains active, no workspace has multiple writers, the issue branch is clean, and its local and remote tips match. Stop obsolete workflow-owned runs only after confirming they are not user-owned or still needed. A stale Paseo `running` label with no process should be reported as stale control-plane state; a live process must be stopped or reported as a hard blocker.
+Before declaring completion, reconcile the workflow's agent and workspace registries. Inspect every implementation, fixer, integrator, and review agent plus every workspace created by successful or failed launches; verify that no obsolete workflow-owned provider or child process remains active, no two active workspace IDs share a canonical path, no workspace has multiple writers, the issue branch is clean, and its local and remote tips match. Stop obsolete workflow-owned runs only after confirming they are not user-owned or still needed. Archive an orphaned workspace only after confirming its path is not shared with a retained workspace. A stale Paseo `running` label with no process should be reported as stale control-plane state; a live process must be stopped or reported as a hard blocker.
 
 Do not impose an arbitrary round limit. Do not call the workflow complete because one agent became idle, one patch passed, or one review round ended. Completion requires the verified issue PR to remain open with the final report posted and workflow-owned agents reconciled, or a hard external blocker to be reported with the preserved branches, PR, agent IDs, evidence, and attempted recovery.
