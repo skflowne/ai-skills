@@ -38,13 +38,13 @@ Respect repository rules around index ownership. Outside an explicit CodeGraph e
 
 ## Reporting
 
-Write the complete report under `.codegraph-evals/` and commit it with the task. Build a short kebab-case filename from the task plus every known GitHub identifier:
+Write the complete report under `.codegraph-evals/` and commit it with the task. Prefix each short kebab-case filename with the report creation time as a compact UTC timestamp (`YYYYMMDDTHHMMSSZ`), followed by the task and every known GitHub identifier:
 
-- `issue-123-planning-ritual-resume.md`
-- `pr-456-planner-regression-review.md`
-- `issue-123-pr-456-persistence-fix.md` when both are known
+- `20260729T174237Z-issue-123-planning-ritual-resume.md`
+- `20260729T174237Z-pr-456-planner-regression-review.md`
+- `20260729T174237Z-issue-123-pr-456-persistence-fix.md` when both are known
 
-Keep the task portion specific enough that concurrent implementation and fix-chunk evaluations do not collide. Never overwrite an unrelated report; refine the task slug or add a numeric suffix. Create the directory when needed.
+Keep the task portion specific enough that concurrent implementation and fix-chunk evaluations do not collide. Never overwrite an unrelated report; use the current creation timestamp and, if a collision remains, refine the task slug or add a numeric suffix. Create the directory when needed.
 
 Also include the concise summary in the PR description or final task report and link to the committed report. Use this shape in the report file:
 

@@ -24,7 +24,7 @@ Require an issue number. Resolve the repository, authenticated GitHub identity, 
 Create one Paseo worktree branch for the issue and launch an agent whose prompt begins with `/skill:portolan-forge`. Explicitly require it to:
 
 - implement the complete issue;
-- follow `codegraph-evaluation` and commit its `.codegraph-evals/issue-<number>-<task>.md` report;
+- follow `codegraph-evaluation` and commit its `.codegraph-evals/<UTC-timestamp>-issue-<number>-<task>.md` report;
 - resolve decision forks autonomously using the decision-log contract above;
 - push the issue branch and open its single PR; and
 - return the branch, PR URL, commits, validation, reviewer results, and decision log.
@@ -52,7 +52,7 @@ After adjudication, publish that round through `github-pr-review` as one consoli
 
 Create exactly one Paseo agent and temporary branch per worthwhile resolution chunk. Each branch starts from the latest issue-branch tip. Run independent chunks in parallel only when they share neither invariant, dependency, nor likely paths; run dependent or overlapping chunks sequentially from the updated issue branch.
 
-Each fix prompt begins with `/skill:portolan-forge` and includes the original issue and PR, the verified PR review permalink, the exact chunk identifier and title assigned to that agent, complete finding evidence, owned scope, explicit neighboring chunks it must not absorb, base ref, acceptance evidence, neighboring constraints, and the autonomous-decision contract. State plainly that the agent is responsible for that chunk only. Require the agent to follow `codegraph-evaluation`, commit a uniquely named `.codegraph-evals/issue-<number>-pr-<number>-<chunk>.md`, verify the chunk through Portolan's gates, and return a commit/branch for integration. Override Portolan's normal handoff: a fix agent must not open another PR or merge itself.
+Each fix prompt begins with `/skill:portolan-forge` and includes the original issue and PR, the verified PR review permalink, the exact chunk identifier and title assigned to that agent, complete finding evidence, owned scope, explicit neighboring chunks it must not absorb, base ref, acceptance evidence, neighboring constraints, and the autonomous-decision contract. State plainly that the agent is responsible for that chunk only. Require the agent to follow `codegraph-evaluation`, commit a uniquely named `.codegraph-evals/<UTC-timestamp>-issue-<number>-pr-<number>-<chunk>.md`, verify the chunk through Portolan's gates, and return a commit/branch for integration. Override Portolan's normal handoff: a fix agent must not open another PR or merge itself.
 
 Wait for every dispatched agent and inspect its evidence. Send verified branches to the original issue agent, which remains the sole integrator. It merges them into the issue branch, resolves integration conflicts using repository evidence and trade-off analysis, runs assembled validation, pushes the updated PR, and records decisions. A conflict revealing shared invariant ownership means the affected chunks were not independent; integrate or rework them sequentially under one owner rather than forcing both patches together.
 
