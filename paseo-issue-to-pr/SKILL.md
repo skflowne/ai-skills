@@ -5,7 +5,7 @@ description: Implement a GitHub issue through Paseo with Portolan Forge and Code
 
 # Paseo Issue to PR
 
-Own an issue through a verified open PR. Use [paseo](../paseo/SKILL.md) for every agent workspace, [portolan-forge](../portolan-forge/SKILL.md) for every implementation chunk, [codegraph-evaluation](../codegraph-evaluation/SKILL.md) throughout, and [drift-review-duo](../drift-review-duo/SKILL.md) for branch-level verification.
+Own an issue through a verified open PR. Use [paseo](../paseo/SKILL.md) for every agent workspace, [portolan-forge](../portolan-forge/SKILL.md) for every implementation chunk, [codegraph-evaluation](../codegraph-evaluation/SKILL.md) throughout, [drift-review-duo](../drift-review-duo/SKILL.md) for branch-level verification, and [github-pr-review](../github-pr-review/SKILL.md) to publish each review round.
 
 The user preauthorizes this workflow to make implementation and review decisions. Never request a preference or approval. When direction is not dictated by repository evidence, perform [trade-off analysis](../trade-off-analysis/SKILL.md), choose the strongest option, continue, and record:
 
@@ -33,7 +33,7 @@ Paseo already owns the worktree; tell Portolan not to create a nested one. Wait 
 
 ## 2. Drift review
 
-Run `drift-review-duo` against the PR in a separate Paseo worktree. Do not let it edit or post GitHub comments. Run it in the foreground with `--output-schema` so its findings and resolution chunks are machine-readable; Paseo does not support structured output together with `--background`.
+Run `drift-review-duo` against the PR in a separate Paseo worktree. Do not let the review agent edit the branch or post directly. Run it in the foreground with `--output-schema` so its findings and resolution chunks are machine-readable; Paseo does not support structured output together with `--background`.
 
 Require each verified finding to include severity, classification, invariant when applicable, evidence, realistic impact, dependencies, affected paths, and a cohesive agent-sized resolution chunk. The reviewer must not ask for plan approval.
 
@@ -46,11 +46,13 @@ The workflow adjudicates what is worth doing:
 
 A review is clear when it contains no verified worthwhile findings. Record deferred findings and why they were not worth doing.
 
+After adjudication, publish that round through `github-pr-review` as one consolidated Pull Request Review with `event: COMMENT`, never inline comments or `REQUEST_CHANGES`. Its body contains only the final fix plan—the worthwhile agent-sized resolution chunks—and a list of candidates dropped from the plan with a concise reason for each. Do not post raw reviewer output, intermediate analysis, or a separate findings walkthrough. For a clear round, use `Fix plan: None` and list anything dropped with its reason. Capture and verify the review permalink returned by `post-pr-review.mjs`. Every review round must land on the PR before any fixer for that round starts.
+
 ## 3. Dispatch resolution chunks
 
 Create exactly one Paseo agent and temporary branch per worthwhile resolution chunk. Each branch starts from the latest issue-branch tip. Run independent chunks in parallel only when they share neither invariant, dependency, nor likely paths; run dependent or overlapping chunks sequentially from the updated issue branch.
 
-Each fix prompt begins with `/skill:portolan-forge` and includes the original issue and PR, complete finding evidence, chunk boundary, base ref, acceptance evidence, neighboring constraints, and the autonomous-decision contract. Require the agent to follow `codegraph-evaluation`, commit a uniquely named `.codegraph-evals/issue-<number>-pr-<number>-<chunk>.md`, verify the chunk through Portolan's gates, and return a commit/branch for integration. Override Portolan's normal handoff: a fix agent must not open another PR or merge itself.
+Each fix prompt begins with `/skill:portolan-forge` and includes the original issue and PR, the verified PR review permalink, the exact chunk identifier and title assigned to that agent, complete finding evidence, owned scope, explicit neighboring chunks it must not absorb, base ref, acceptance evidence, neighboring constraints, and the autonomous-decision contract. State plainly that the agent is responsible for that chunk only. Require the agent to follow `codegraph-evaluation`, commit a uniquely named `.codegraph-evals/issue-<number>-pr-<number>-<chunk>.md`, verify the chunk through Portolan's gates, and return a commit/branch for integration. Override Portolan's normal handoff: a fix agent must not open another PR or merge itself.
 
 Wait for every dispatched agent and inspect its evidence. Send verified branches to the original issue agent, which remains the sole integrator. It merges them into the issue branch, resolves integration conflicts using repository evidence and trade-off analysis, runs assembled validation, pushes the updated PR, and records decisions. A conflict revealing shared invariant ownership means the affected chunks were not independent; integrate or rework them sequentially under one owner rather than forcing both patches together.
 
