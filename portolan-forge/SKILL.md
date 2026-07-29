@@ -62,6 +62,6 @@ Validate the assembled branch after integration; owner-local evidence is only mi
 1. Complete the repository-defined final inventory, documentation, diff/status inspection, and full local gate.
 2. Ask both persistent reviewers to inspect the complete branch against the base with the raw final evidence.
 3. Resolve substantive findings and rerun every invalidated check before handoff.
-4. Push the completed branch and open a PR using the repository's required template and linkage. Treat use of this implementation workflow as authorization for that handoff unless the user explicitly says not to publish. If the remote, credentials, or repository policy prevents a PR, report the exact blocker rather than claiming completion.
+4. By default, push the completed branch and open a PR using the repository's required template and linkage. Do otherwise only when the repository instructions specify a different handoff or the user explicitly requests a different handoff. If the remote or credentials prevent the required handoff, report the exact blocker rather than claiming completion.
 5. Report milestone evidence, final validation, reviewer outcomes, documentation effects, and residual risk.
 6. Add a concise **Friction** section listing unexpected failed commands, setup or configuration footguns, misleading repository guidance, environment surprises, and anything else that caused round-trips, wasted time, or wasted tokens. Keep intentional RED results with the milestone evidence rather than repeating them as friction. State `None` when nothing tripped up the run.
