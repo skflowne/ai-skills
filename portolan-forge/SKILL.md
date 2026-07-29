@@ -11,15 +11,13 @@ Do not invoke another forge skill from this workflow.
 
 ## Roles
 
-Use three distinct role types:
+Always use these core roles:
 
 - one **primary agent and integrator** that owns the working branch, decomposition, integration, and acceptance evidence;
-- optional **implementation workers** that write and validate complete concerns delegated by the primary; and
-- two persistent, independent, read-only reviewers:
-  - a **correctness reviewer** for requirements, ownership, architecture, regressions, and repository compliance;
-  - a **test reviewer** for test strategy, RED evidence, coverage, and validation completeness.
+- one persistent, independent, read-only **correctness reviewer** for requirements, ownership, architecture, regressions, and repository compliance; and
+- one persistent, independent, read-only **test reviewer** for test strategy, RED evidence, coverage, and validation completeness.
 
-Implementation workers are additional writer subagents, not the reviewers. The primary may also implement concerns itself. Reuse the same two reviewers throughout; they advise, while the primary verifies findings and remains accountable for the assembled result.
+The primary may additionally delegate complete implementation concerns to **implementation workers** when useful. Workers are writer subagents, not reviewers, and do not replace either required reviewer. The primary may also implement concerns itself. Reuse the same two reviewers throughout; they advise, while the primary verifies findings and remains accountable for the assembled result.
 
 Every reviewer finding must carry a realistic failure scenario: the trigger a real user or caller actually reaches, the mechanism at the cited `file:line`, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. Findings that are not user-facing name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. A finding whose harm is only "could cause unexpected behavior," or whose trigger the call sites, types, or validation already exclude, is dropped rather than downgraded — and the primary rejects it with that reason if it arrives anyway.
 
