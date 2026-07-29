@@ -38,7 +38,15 @@ Respect repository rules around index ownership. Outside an explicit CodeGraph e
 
 ## Reporting
 
-Include a concise summary and the complete per-call report in the PR description or final task report. Use this shape:
+Write the complete report under `.codegraph-evals/` and commit it with the task. Build a short kebab-case filename from the task plus every known GitHub identifier:
+
+- `issue-123-planning-ritual-resume.md`
+- `pr-456-planner-regression-review.md`
+- `issue-123-pr-456-persistence-fix.md` when both are known
+
+Keep the task portion specific enough that concurrent implementation and fix-chunk evaluations do not collide. Never overwrite an unrelated report; refine the task slug or add a numeric suffix. Create the directory when needed.
+
+Also include the concise summary in the PR description or final task report and link to the committed report. Use this shape in the report file:
 
 ```markdown
 ## CodeGraph evaluation
@@ -60,4 +68,4 @@ Include a concise summary and the complete per-call report in the PR description
 | 1 | ... | Success | ... | ... |
 ```
 
-A representative successful evaluation may report that all 11 invocations succeeded, the index at `.codegraph/codegraph.db` initially measured 11,804,672 bytes, and CodeGraph was most useful for locating `PlanningRitualModal`, the `PlannerClient` resume boundary, `dayPlanRouter.completePlanning`, persistence blast radius, and shared E2E helpers. It should also state observed limitations: JSX tails were frequently truncated, Markdown discovery was ineffective, and exact E2E spec queries often returned production symbols instead. Record that narrow reads and targeted `rg` were used only after CodeGraph exploration to fill those gaps, and keep the complete per-call evidence in the PR description.
+A representative successful evaluation may report that all 11 invocations succeeded, the index at `.codegraph/codegraph.db` initially measured 11,804,672 bytes, and CodeGraph was most useful for locating `PlanningRitualModal`, the `PlannerClient` resume boundary, `dayPlanRouter.completePlanning`, persistence blast radius, and shared E2E helpers. It should also state observed limitations: JSX tails were frequently truncated, Markdown discovery was ineffective, and exact E2E spec queries often returned production symbols instead. Record that narrow reads and targeted `rg` were used only after CodeGraph exploration to fill those gaps. Keep the complete per-call evidence in the `.codegraph-evals/` report and link it from the PR description.
