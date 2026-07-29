@@ -1,11 +1,11 @@
 ---
-name: paseo-verified-issue
-description: Implement a GitHub issue through Paseo with Portolan Forge and CodeGraph evaluation, then run autonomous drift-review-duo and recursively dispatch worthwhile fix chunks until the PR is clear and merged.
+name: paseo-issue-to-pr
+description: Implement a GitHub issue through Paseo with Portolan Forge and CodeGraph evaluation, then run autonomous drift-review-duo and recursively dispatch worthwhile fix chunks until a verified PR is ready for human review.
 ---
 
-# Paseo Verified Issue
+# Paseo Issue to PR
 
-Own an issue from implementation through merge. Use [paseo](../paseo/SKILL.md) for every agent workspace, [portolan-forge](../portolan-forge/SKILL.md) for every implementation chunk, [codegraph-evaluation](../codegraph-evaluation/SKILL.md) throughout, and [drift-review-duo](../drift-review-duo/SKILL.md) for branch-level verification.
+Own an issue through a verified open PR. Use [paseo](../paseo/SKILL.md) for every agent workspace, [portolan-forge](../portolan-forge/SKILL.md) for every implementation chunk, [codegraph-evaluation](../codegraph-evaluation/SKILL.md) throughout, and [drift-review-duo](../drift-review-duo/SKILL.md) for branch-level verification.
 
 The user preauthorizes this workflow to make implementation and review decisions. Never request a preference or approval. When direction is not dictated by repository evidence, perform [trade-off analysis](../trade-off-analysis/SKILL.md), choose the strongest option, continue, and record:
 
@@ -54,11 +54,25 @@ Each fix prompt begins with `/skill:portolan-forge` and includes the original is
 
 Wait for every dispatched agent and inspect its evidence. Send verified branches to the original issue agent, which remains the sole integrator. It merges them into the issue branch, resolves integration conflicts using repository evidence and trade-off analysis, runs assembled validation, pushes the updated PR, and records decisions. A conflict revealing shared invariant ownership means the affected chunks were not independent; integrate or rework them sequentially under one owner rather than forcing both patches together.
 
-## 4. Repeat and merge
+## 4. Repeat and hand off
 
 After all selected fixes are integrated, run a fresh full `drift-review-duo` against the assembled PR—not separate final reviews of each fix branch.
 
 - If worthwhile findings remain, repeat review adjudication, one-agent-per-chunk dispatch, integration, validation, and full drift review.
-- If no worthwhile findings remain, verify required CI and repository merge requirements, choose the repository-supported merge strategy through trade-off analysis when policy does not dictate one, update the PR description with validation, CodeGraph report links, drift-review rounds, deferred findings, and decision log, then merge the PR.
+- If no worthwhile findings remain, verify required CI, update the PR description with validation, CodeGraph report links, drift-review rounds, deferred findings, and the full decision log, then leave the PR open for human review. Never merge it or enable auto-merge.
 
-Do not impose an arbitrary round limit. Do not call the workflow complete because one agent became idle, one patch passed, or one review round ended. Completion requires the issue PR to be merged or a hard external blocker to be reported with the preserved branches, PR, agent IDs, evidence, and attempted recovery.
+Post one final, very concise PR comment with only these sections (use `None` when empty and keep each item to one line):
+
+```markdown
+## Automated workflow report
+
+### Decisions made ↔ problem solved
+- <decision> ↔ <problem it solved>
+
+### Refactoring done ↔ why it was worth it
+- <refactor> ↔ <why it was judged sufficiently likely to improve later work>
+```
+
+If the workflow resumes, update its existing report comment rather than posting duplicates.
+
+Do not impose an arbitrary round limit. Do not call the workflow complete because one agent became idle, one patch passed, or one review round ended. Completion requires the verified issue PR to remain open with the final report posted, or a hard external blocker to be reported with the preserved branches, PR, agent IDs, evidence, and attempted recovery.
