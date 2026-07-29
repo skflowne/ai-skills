@@ -32,7 +32,7 @@ Use the `paseo` CLI to launch durable coding-agent sessions without moving or di
 
 ## Launch isolated agents
 
-Every new task must run in a new Paseo-managed workspace. Never launch a new task directly in the user's current checkout or reuse another task's workspace. Reuse an existing workspace only for an explicit follow-up to the same task and branch.
+Every new task must run in a new Paseo-managed workspace. Never launch a new task directly in the user's current checkout or reuse another task's workspace. Reuse an existing workspace only for an explicit follow-up to the same task and branch, after confirming its prior agent has no active run or provider process. Keep at most one active writer in a workspace.
 
 Create one worktree workspace per new coding task with `--new-workspace worktree`. For concurrent writers, create the workspaces sequentially to avoid concurrent Git worktree locks; use `--background` so the agents run in parallel after launch.
 
@@ -93,7 +93,16 @@ paseo attach <agent-id>
 paseo stop <agent-id>
 ```
 
-Do not silently restart, stop, archive, or delete an agent the user may still be using.
+Treat Paseo status as control-plane state, not proof that the provider process exited. An `error`, timeout, failed `wait`, or failed `send` can leave the original run alive, and a queued follow-up can execute later. Before retrying, replacing an agent, or reusing its workspace:
+
+1. inspect the agent and recent logs;
+2. check for a live provider or child process whose working directory is the workspace, using platform-appropriate process inspection;
+3. stop the original agent and require acknowledged cancellation; and
+4. verify the workspace status before assigning another writer.
+
+If `send` or `wait` reports that the agent is already processing, do not queue more recovery messages or launch a replacement. Continue observing the existing run. Never both queue a recovery follow-up and create a replacement agent: the delayed follow-up can revive the original and create two writers.
+
+When an owned workflow finishes, reconcile every captured agent ID: verify no obsolete implementation process is still running, the intended branch is clean, and its local and remote tips match. If cancellation is not acknowledged, do not treat the workspace as reusable; report the ambiguous state and preserve it until the process is definitively terminated. Do not silently restart, stop, archive, or delete an agent the user may still be using.
 
 ## Windows and UI behavior
 
@@ -105,5 +114,6 @@ A separate Paseo worktree workspace is sufficient isolation even when a visible 
 
 - If workspace creation fails, do not fall back to editing the user's checkout.
 - If one launch succeeds and another fails, report both states; do not discard the successful durable session.
+- If a run fails at the control-plane boundary, prove whether its provider process is still alive before recovery; never infer termination from `status: error` alone.
 - If branch or invariant ownership overlaps with an active agent, stop and ask the user how to resolve ownership.
 - If a child surfaces a genuine user decision, leave it running/idle and bring the decision back to the user rather than deciding on their behalf.

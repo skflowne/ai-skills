@@ -21,7 +21,7 @@ Stop only for a hard external blocker such as unavailable credentials, an inacce
 
 Require an issue number. Resolve the repository, authenticated GitHub identity, default or explicitly stacked base, clean-tree state, active Paseo agents, and current `paseo run --help`; verify issue scope and repository instructions rather than asking for facts that can be inspected. Leave unrelated dirty work untouched and branch from the selected committed base, recording anything excluded from the run.
 
-Create one Paseo worktree branch for the issue and launch an agent whose prompt begins with `/skill:portolan-forge`. Explicitly require it to:
+Create one Paseo worktree branch for the issue and launch an agent whose prompt begins with `/skill:portolan-forge`. Record every workflow-owned agent's ID, workspace, branch, role, and expected lifecycle state so later recovery and cleanup can reconcile the complete fleet. Explicitly require the implementation agent to:
 
 - implement the complete issue;
 - follow `codegraph-evaluation` and commit its `.codegraph-evals/<UTC-timestamp>-issue-<number>-<task>.md` report;
@@ -29,7 +29,16 @@ Create one Paseo worktree branch for the issue and launch an agent whose prompt 
 - push the issue branch and open its single PR; and
 - return the branch, PR URL, commits, validation, reviewer results, and decision log.
 
-Paseo already owns the worktree; tell Portolan not to create a nested one. Wait with `paseo wait`, then inspect the agent and logs. An idle request for a decision is not completion: send the autonomous-decision contract and continue waiting.
+Paseo already owns the worktree; tell Portolan not to create a nested one. Wait with `paseo wait`, then inspect the agent and logs. An idle request for a decision is not completion: after confirming there is no active run, send the autonomous-decision contract and continue waiting.
+
+A transport error, failed `wait`/`send`, or `status: error` does not prove the implementation process stopped. Follow Paseo's ambiguous-state recovery before sending more messages or launching a replacement. In particular:
+
+- if Paseo says the agent is already processing, observe that run instead of queueing another recovery message;
+- never queue a follow-up to the original agent and also start a replacement;
+- never put a replacement writer in the issue workspace until the original cancellation is acknowledged and no provider or child process remains; and
+- after replacement, do not send any further message to the superseded agent.
+
+The original issue workspace must have exactly one active writer. If the integrator is unrecoverable, preserve its branch and evidence, definitively terminate it, then assign one replacement integrator as an explicit same-task continuation. An unacknowledged cancellation with a live process is an infrastructure blocker, not permission to create a second writer.
 
 ## 2. Drift review
 
@@ -54,19 +63,31 @@ Create exactly one Paseo agent and temporary branch per worthwhile resolution ch
 
 Each fix prompt begins with `/skill:portolan-forge` and includes the original issue and PR, the verified PR review permalink, the exact chunk identifier and title assigned to that agent, complete finding evidence, owned scope, explicit neighboring chunks it must not absorb, base ref, acceptance evidence, neighboring constraints, and the autonomous-decision contract. State plainly that the agent is responsible for that chunk only. Require the agent to follow `codegraph-evaluation`, commit a uniquely named `.codegraph-evals/<UTC-timestamp>-issue-<number>-pr-<number>-<chunk>.md`, verify the chunk through Portolan's gates, and return a commit/branch for integration. Override Portolan's normal handoff: a fix agent must not open another PR or merge itself.
 
-Wait for every dispatched agent and inspect its evidence. Send verified branches to the original issue agent, which remains the sole integrator. It merges them into the issue branch, resolves integration conflicts using repository evidence and trade-off analysis, runs assembled validation, pushes the updated PR, and records decisions. A conflict revealing shared invariant ownership means the affected chunks were not independent; integrate or rework them sequentially under one owner rather than forcing both patches together.
+Wait for every dispatched agent and inspect its evidence. Send verified branches to the current designated issue integrator, which remains the sole integrator. It merges them into the issue branch, resolves integration conflicts using repository evidence and trade-off analysis, runs assembled validation, pushes the updated PR, and records decisions. A conflict revealing shared invariant ownership means the affected chunks were not independent; integrate or rework them sequentially under one owner rather than forcing both patches together.
 
 ## 4. Repeat and hand off
 
 After all selected fixes are integrated, run a fresh full `drift-review-duo` against the assembled PR—not separate final reviews of each fix branch.
 
 - If worthwhile findings remain, repeat review adjudication, one-agent-per-chunk dispatch, integration, validation, and full drift review.
-- If no worthwhile findings remain, verify required CI, update the PR description with validation, CodeGraph report links, drift-review rounds, deferred findings, and the full decision log, then leave the PR open for human review. Never merge it or enable auto-merge.
+- If no worthwhile findings remain, verify required CI, leave the PR open for human review, and publish the final workflow report as a PR comment. Never update the PR body, merge the PR, or enable auto-merge.
 
-Post one final, very concise PR comment with only these sections (use `None` when empty and keep each item to one line):
+Post one final PR comment using the following template. Include validation, CodeGraph report links, drift-review rounds, deferred findings, and the full decision log. Use `None` when a section is empty; keep decision and refactoring items to one line.
 
 ```markdown
 ## Automated workflow report
+
+### Validation
+- <check and result>
+
+### CodeGraph reports
+- <report link>
+
+### Drift-review rounds
+- <round summary and review permalink>
+
+### Deferred findings
+- <finding> — <reason deferred>
 
 ### Decisions made ↔ problem solved
 - <decision> ↔ <problem it solved>
@@ -75,6 +96,8 @@ Post one final, very concise PR comment with only these sections (use `None` whe
 - <refactor> ↔ <why it was judged sufficiently likely to improve later work>
 ```
 
-If the workflow resumes, update its existing report comment rather than posting duplicates.
+If the workflow resumes, update its existing report comment rather than posting duplicates. Leave the PR body unchanged.
 
-Do not impose an arbitrary round limit. Do not call the workflow complete because one agent became idle, one patch passed, or one review round ended. Completion requires the verified issue PR to remain open with the final report posted, or a hard external blocker to be reported with the preserved branches, PR, agent IDs, evidence, and attempted recovery.
+Before declaring completion, reconcile the workflow's agent registry. Inspect every implementation, fixer, integrator, and review agent; verify that no obsolete workflow-owned provider or child process remains active, no workspace has multiple writers, the issue branch is clean, and its local and remote tips match. Stop obsolete workflow-owned runs only after confirming they are not user-owned or still needed. A stale Paseo `running` label with no process should be reported as stale control-plane state; a live process must be stopped or reported as a hard blocker.
+
+Do not impose an arbitrary round limit. Do not call the workflow complete because one agent became idle, one patch passed, or one review round ended. Completion requires the verified issue PR to remain open with the final report posted and workflow-owned agents reconciled, or a hard external blocker to be reported with the preserved branches, PR, agent IDs, evidence, and attempted recovery.
