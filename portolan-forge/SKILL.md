@@ -11,12 +11,15 @@ Do not invoke another forge skill from this workflow.
 
 ## Roles
 
-Use one primary agent and integrator plus two persistent, independent, read-only reviewers. The primary owns the working branch, decomposition, integration, and acceptance evidence, but may assign implementation to other agents when the ownership rules below are satisfied:
+Use three distinct role types:
 
-- a **correctness reviewer** for requirements, ownership, architecture, regressions, and repository compliance;
-- a **test reviewer** for test strategy, RED evidence, coverage, and validation completeness.
+- one **primary agent and integrator** that owns the working branch, decomposition, integration, and acceptance evidence;
+- optional **implementation workers** that write and validate complete concerns delegated by the primary; and
+- two persistent, independent, read-only reviewers:
+  - a **correctness reviewer** for requirements, ownership, architecture, regressions, and repository compliance;
+  - a **test reviewer** for test strategy, RED evidence, coverage, and validation completeness.
 
-Reuse the same reviewers throughout. They advise; the primary verifies findings and remains accountable for the assembled result.
+Implementation workers are additional writer subagents, not the reviewers. The primary may also implement concerns itself. Reuse the same two reviewers throughout; they advise, while the primary verifies findings and remains accountable for the assembled result.
 
 Every reviewer finding must carry a realistic failure scenario: the trigger a real user or caller actually reaches, the mechanism at the cited `file:line`, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. Findings that are not user-facing name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. A finding whose harm is only "could cause unexpected behavior," or whose trigger the call sites, types, or validation already exclude, is dropped rather than downgraded — and the primary rejects it with that reason if it arrives anyway.
 
@@ -46,7 +49,7 @@ Do not advance across a high-risk seam while its milestone has substantive findi
 
 ### 3. Delegate with complete ownership and context
 
-Implementation subagents are optional. Use them when they improve the work and a cohesive invariant or concern has a clear single owner who can receive enough context to complete and prove it end to end. Delegation boundaries follow behavior and ownership, not file counts. Cross-cutting work is delegable, but one agent must own the whole concern wherever it reaches; do not scatter one rule, migration, shared abstraction, or state invariant across agents.
+Implementation workers are optional. Use them when they improve the work and a cohesive invariant or concern has a clear single owner who can receive enough context to complete and prove it end to end. Delegation boundaries follow behavior and ownership, not file counts. Cross-cutting work is delegable, but one agent must own the whole concern wherever it reaches; do not scatter one rule, migration, shared abstraction, or state invariant across agents.
 
 Before a worker starts, give it the original task, canonical repository instructions, the complete plan and ownership map, relevant user decisions, base and working refs, surrounding code and interfaces, acceptance evidence, and validation commands. Include neighboring concerns that constrain its design even when it does not own them. Never delegate with only a file list or a one-line objective, and require the worker to inspect enough adjacent code to understand the full concern before editing.
 
