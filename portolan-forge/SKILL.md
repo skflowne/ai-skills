@@ -1,67 +1,63 @@
 ---
 name: portolan-forge
-description: Run a Portolan implementation as a repository-native, reviewer-gated workflow. Explicit invocation always activates it; auto-select it only for nontrivial implementation work. It defers engineering policy to Portolan's canonical instructions while coordinating worktree setup, ownership-aware delegation, red-green milestones, persistent independent review, integration, and PR handoff.
+description: Run a repository-native, reviewer-gated Portolan implementation. Explicit invocation always activates it; auto-select it only for nontrivial implementation work. It coordinates worktree setup, ownership-aware delegation, red-green milestones, independent review, integration, and PR handoff while deferring engineering policy to Portolan's canonical instructions.
 ---
 
 # Portolan Forge
 
-This skill orchestrates work; it does not define Portolan engineering policy. Read `AGENTS.md` and every document it selects for the task, and treat their current contents as the sole authority for implementation, setup, validation, and repository conventions. Do not copy their checklists into the plan or replace them with generic forge conventions. The workflow requirements in this skill still apply unless the user explicitly overrides them.
+This skill orchestrates work; it does not define engineering policy. Read `AGENTS.md` and every document it selects for the task (collectively, **repository instructions**). They are the sole authority for implementation, setup, validation, and repository conventions: do not copy their checklists into the plan or replace them with generic forge conventions. This workflow still applies unless the user explicitly overrides it.
 
 Do not invoke another forge skill from this workflow.
 
-## Roles
+## Roles and review gates
 
-Always use these core roles:
+Always use:
 
-- one **primary agent and integrator** that owns the working branch, decomposition, integration, and acceptance evidence;
+- one **primary agent and integrator** that owns the working branch, decomposition, integration, and acceptance evidence and remains accountable for the assembled result;
 - one persistent, independent, read-only **correctness reviewer** for requirements, ownership, architecture, regressions, and repository compliance; and
 - one persistent, independent, read-only **test reviewer** for test strategy, RED evidence, coverage, and validation completeness.
 
-The primary may additionally delegate complete implementation concerns to **implementation workers** when useful. Workers are writer subagents, not reviewers, and do not replace either required reviewer. The primary may also implement concerns itself. Reuse the same two reviewers throughout; they advise, while the primary verifies findings and remains accountable for the assembled result.
+The primary may implement directly or, when useful, delegate complete concerns to optional writer-subagent **implementation workers**. Workers never replace reviewers. Reuse the same reviewers throughout; they advise, and the primary verifies their findings.
 
-Every reviewer finding must carry a realistic failure scenario: the trigger a real user or caller actually reaches, the mechanism at the cited `file:line`, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. Findings that are not user-facing name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. A finding whose harm is only "could cause unexpected behavior," or whose trigger the call sites, types, or validation already exclude, is dropped rather than downgraded — and the primary rejects it with that reason if it arrives anyway.
+A reviewer finding must state a realistic trigger that a real user or caller actually reaches, the mechanism at `file:line`, concrete user impact, and frequency in normal use. For non-user-facing findings, state the realistic future edit and resulting user-visible defect. Drop findings whose only harm is unspecified “unexpected behavior” or whose trigger call sites, types, or validation exclude; the primary rejects them with that reason.
+
+Never summarize intended fixes or steer reviewer conclusions at a review gate. To clear a milestone gate, verify every finding, resolve valid ones through the owner, rerun invalidated evidence, commit corrections cohesively, and request re-review until clear.
 
 ## Workflow
 
 ### 1. Establish the workspace and contract
 
-1. Resolve the task, repository state, working/base refs, and whether this is issue work. Complete the preflight and proportional ownership discovery required by the repository before editing.
-2. Unless the user explicitly directs work in the current checkout, create a dedicated branch and worktree from the resolved base and continue the entire run there. Do not move or dirty the user's checkout. If worktree creation is unavailable, stop and surface the blocker rather than silently falling back to the current checkout.
-3. Set up the working tree from its repository instructions before planning implementation: initialize required submodules or toolchains, install dependencies with the repository-prescribed commands, run any required bootstrap or generation step, and perform the cheapest useful baseline check. Do not assume setup artifacts from another checkout are available. Record setup commands and unexpected failures for the final friction report.
-4. Surface any repository-defined user decision and wait for the user's answer. Reviewers cannot decide it on the user's behalf.
-5. Name every invariant and cross-cutting concern the task introduces or changes before slicing milestones. Assign each exactly one implementation owner end to end. Ownership follows the concern across files, layers, and milestones; never split it merely to create parallel work. If two proposed slices must change or reason about the same invariant, merge them under one owner.
-6. Plan cohesive, preferably vertical milestones. Give each a coordination label, authoritative owner, acceptance evidence, and review gate. Include conditional migration, documentation, and validation work selected by the repository instructions.
-7. Brief both reviewers with the original task, refs, plan, invariant and cross-cutting ownership, and ownership evidence. Ask them to identify blocking plan gaps before implementation.
-
-Milestone labels are communication handles only, never commit-message prefixes.
+1. Resolve the task, repository state, working and base refs, and whether this is issue work. Before editing, complete repository-required preflight and proportional ownership discovery.
+2. Unless the user explicitly directs work in the current checkout, create a dedicated branch and worktree from the base and remain there for the run. Do not move or dirty the user's checkout. If worktree creation is unavailable, report the blocker and stop rather than silently falling back.
+3. Before implementation planning, follow repository setup: initialize required submodules or toolchains, install dependencies with prescribed commands, run required bootstrap or generation, and perform the cheapest useful baseline check. Do not assume setup artifacts from another checkout are available.
+4. Whenever a repository-defined user decision arises, suspend work, surface it, and wait. Reviewers cannot decide it.
+5. Before slicing milestones, name every introduced or changed invariant and cross-cutting concern and give each exactly one end-to-end implementation owner across files, layers, and milestones. Do not split ownership for parallelism; merge slices that must change or reason about the same invariant.
+6. Plan cohesive, preferably vertical milestones. Give each a coordination label, authoritative owner, acceptance evidence, and review gate. Include conditional migration, documentation, and validation selected by repository instructions. Labels are communication handles, not commit-message prefixes.
+7. Brief both reviewers with the original task, refs, plan, ownership map and evidence. Ask them to identify blocking plan gaps, and resolve those gaps before implementation.
 
 ### 2. Run each milestone
 
-1. Have the test reviewer critique the proposed proof before production editing.
-2. The named implementation owner authors the repository-required RED evidence, then implements the smallest complete change. For work where the repository does not require RED, use the applicable deterministic proof instead of inventing a failing test.
-3. Run focused validation, have the primary inspect the milestone diff, and create a cohesive commit under repository commit conventions.
-4. Give both reviewers the milestone label, commit range, and raw evidence. Do not summarize intended fixes or steer their conclusions.
-5. Verify every finding. Resolve valid findings through the owner, repeat invalidated evidence, commit cohesively, and request re-review until the milestone is clear.
+1. Before production editing, have the test reviewer critique the proposed proof.
+2. The named owner authors repository-required RED evidence, then implements the smallest complete change. Where RED is not required, use the applicable deterministic proof instead of inventing a failing test.
+3. Run focused validation, have the primary inspect the diff, and create a cohesive commit under repository conventions.
+4. Give both reviewers the milestone label, commit range, and raw evidence, then clear the milestone review gate.
 
-Do not advance across a high-risk seam while its milestone has substantive findings. A newly discovered user decision suspends the workflow until the user responds.
+Do not cross a high-risk seam while its milestone has substantive findings.
 
-### 3. Delegate with complete ownership and context
+### 3. Delegate complete concerns
 
-Implementation workers are optional. Use them when they improve the work and a cohesive invariant or concern has a clear single owner who can receive enough context to complete and prove it end to end. Delegation boundaries follow behavior and ownership, not file counts. Cross-cutting work is delegable, but one agent must own the whole concern wherever it reaches; do not scatter one rule, migration, shared abstraction, or state invariant across agents.
+Delegation follows behavior and ownership, not file counts. Delegate only a complete concern whose single owner can implement and prove it end to end. Cross-cutting work is delegable, but never scatter a rule, migration, shared abstraction, or state invariant across agents.
 
-Before a worker starts, give it the original task, canonical repository instructions, the complete plan and ownership map, relevant user decisions, base and working refs, surrounding code and interfaces, acceptance evidence, and validation commands. Include neighboring concerns that constrain its design even when it does not own them. Never delegate with only a file list or a one-line objective, and require the worker to inspect enough adjacent code to understand the full concern before editing.
+Before a worker starts, give it the original task, repository instructions, complete plan and ownership map, relevant user decisions, base and working refs, surrounding code and interfaces, acceptance evidence, validation commands, and neighboring design constraints. Never delegate only a file list or one-line objective; require enough adjacent-code inspection to understand the concern before editing.
 
-Worktree isolation is not required for sequential delegation. A worker may edit the primary worktree when it is the only writer; the primary and other workers must not edit concurrently. Use separate worktrees only for genuinely parallel writers, and only when their invariant ownership and paths do not overlap. The primary integrates and verifies all delegated work.
+Sequential delegation needs no separate worktree: a worker may edit the primary worktree only as its sole writer, while the primary and other workers do not edit. Use separate worktrees only for genuinely parallel writers with non-overlapping invariant ownership and paths.
 
-If implementation reveals that a slice shares an invariant, interface change, or cross-cutting concern with another owner's work, stop that slice and replan. Give the expanded concern to one owner in full rather than letting either agent make a partial local fix.
-
-Validate the assembled branch after integration; owner-local evidence is only milestone evidence.
+If implementation reveals a shared invariant, interface change, or cross-cutting concern across owners, stop the slice and replan it under one complete owner rather than allowing partial local fixes. The primary integrates and verifies delegated work. After integration, validate the assembled branch; owner-local proof is only milestone evidence.
 
 ### 4. Finish
 
-1. Complete the repository-defined final inventory, documentation, diff/status inspection, and full local gate.
-2. Ask both persistent reviewers to inspect the complete branch against the base with the raw final evidence.
-3. Resolve substantive findings and rerun every invalidated check before handoff.
-4. By default, push the completed branch and open a PR using the repository's required template and linkage. Do otherwise only when the repository instructions specify a different handoff or the user explicitly requests a different handoff. If the remote or credentials prevent the required handoff, report the exact blocker rather than claiming completion.
-5. Report milestone evidence, final validation, reviewer outcomes, documentation effects, and residual risk.
-6. Add a concise **Friction** section listing unexpected failed commands, setup or configuration footguns, misleading repository guidance, environment surprises, and anything else that caused round-trips, wasted time, or wasted tokens. Keep intentional RED results with the milestone evidence rather than repeating them as friction. State `None` when nothing tripped up the run.
+1. Complete the repository-defined final inventory and documentation, inspect diff and status, and run the full local gate.
+2. Ask both reviewers to inspect the complete branch against the base with raw final evidence. Resolve substantive findings and rerun every invalidated check before handoff.
+3. By default, push the branch and open a PR with repository-required template and linkage. Deviate only when repository instructions or the user require another handoff. Report exact remote or credential blockers rather than claiming completion.
+4. Report milestone evidence, final validation, reviewer outcomes, documentation effects, and residual risk.
+5. Add a concise **Friction** section recording setup commands and unexpected failures, setup or configuration footguns, misleading guidance, environment surprises, and other wasted round-trips, time, or tokens. Keep intentional RED results with milestone evidence. State `None` when there was no friction.
