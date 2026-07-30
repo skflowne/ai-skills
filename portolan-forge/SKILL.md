@@ -1,6 +1,6 @@
 ---
 name: portolan-forge
-description: Run a repository-native, reviewer-gated Portolan implementation. Explicit invocation always activates it; auto-select it only for nontrivial implementation work. It coordinates worktree setup, ownership-aware delegation, red-green milestones, independent review, integration, and PR handoff while deferring engineering policy to Portolan's canonical instructions.
+description: Run a repository-native, reviewer-gated Portolan implementation. Explicit invocation always activates it; auto-select it only for nontrivial implementation work. It coordinates architecture discovery and human validation, worktree setup, ownership-aware delegation, red-green milestones, independent review, integration, and PR handoff while deferring engineering policy to repository instructions.
 ---
 
 # Portolan Forge
@@ -30,10 +30,18 @@ Never summarize intended fixes or steer reviewer conclusions at a review gate. T
 1. Resolve the task, repository state, working and base refs, and whether this is issue work. Before editing, complete repository-required preflight and proportional ownership discovery.
 2. Unless the user explicitly directs work in the current checkout, create a dedicated branch and worktree from the base and remain there for the run. Do not move or dirty the user's checkout. If worktree creation is unavailable, report the blocker and stop rather than silently falling back.
 3. Before implementation planning, follow repository setup: initialize required submodules or toolchains, install dependencies with prescribed commands, run required bootstrap or generation, and perform the cheapest useful baseline check. Do not assume setup artifacts from another checkout are available.
-4. Whenever a repository-defined user decision arises, suspend work, surface it, and wait. The request must concisely state the relevant context, what the work is trying to solve, and the specific decision needed. Reviewers cannot decide it.
-5. Before slicing milestones, name every introduced or changed invariant and cross-cutting concern and give each exactly one end-to-end implementation owner across files, layers, and milestones. Do not split ownership for parallelism; merge slices that must change or reason about the same invariant.
-6. Plan cohesive, preferably vertical milestones. Give each a coordination label, authoritative owner, acceptance evidence, and review gate. Include conditional migration, documentation, and validation selected by repository instructions. Labels are communication handles, not commit-message prefixes.
-7. Brief both reviewers with the original task, refs, plan, ownership map and evidence. Ask them to identify blocking plan gaps, and resolve those gaps before implementation.
+4. Research how the task fits the repository's current and intended architecture. Read the governing engineering and architecture documents selected by repository instructions, then inspect the relevant implementation boundaries. Produce a concise **architecture plan** that states:
+   - the problem and every affected invariant;
+   - current and proposed owners for state, behavior, and relationships;
+   - dependency direction and read, write, optimistic, failure, and refresh flows;
+   - transaction, persistence, migration, compatibility, and external-system boundaries;
+   - reasonable alternatives with evidence-backed trade-offs and a recommendation; and
+   - the observable evidence that will prove the resulting boundaries.
+5. Conduct a human architecture interview before milestone planning or production editing. Present the architecture plan, ask focused questions for unresolved choices, and stop until the human explicitly validates a direction. Reviewers and implementation workers cannot supply this approval. If an issue or prior interview already records an approved architecture, map the task to that decision and ask the human to confirm that it remains the governing direction rather than silently treating old text as approval. Do not edit governing architecture documents until the repository's human-approval policy is satisfied.
+6. Whenever another repository-defined user decision arises, suspend work, surface it, and wait. The request must concisely state the relevant context, what the work is trying to solve, and the specific decision needed. Reviewers cannot decide it.
+7. Before slicing milestones, name every introduced or changed invariant and cross-cutting concern and give each exactly one end-to-end implementation owner across files, layers, and milestones. Do not split ownership for parallelism; merge slices that must change or reason about the same invariant.
+8. Plan cohesive, preferably vertical milestones. Give each a coordination label, authoritative owner, acceptance evidence, and review gate. Include conditional migration, documentation, and validation selected by repository instructions. Labels are communication handles, not commit-message prefixes.
+9. Brief both reviewers with the original task, refs, approved architecture plan, ownership map, milestone plan, and evidence. Ask them to identify blocking plan gaps or deviations from the approved architecture, and resolve those gaps before implementation.
 
 ### 2. Run each milestone
 
