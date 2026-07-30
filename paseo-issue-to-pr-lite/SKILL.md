@@ -25,7 +25,14 @@ Require an issue number. Resolve the repository, authenticated GitHub identity, 
 
 Follow Paseo's ambiguous-state recovery before reusing a workspace, replacing an agent, or retrying a failed command. A Paseo status label alone does not prove that a provider or child process stopped. Never queue a follow-up and launch a replacement for the same work.
 
-Maintain a workflow ledger outside committed source containing every workflow-created agent and workspace, including failed launches, with its ID, canonical path, branch, role, base/head SHA, and lifecycle state.
+Maintain a workflow ledger outside committed source containing every workflow-created agent and workspace, including failed launches, with its ID, canonical path, branch, role, base/head SHA, and lifecycle state. Also record long-lived processes and services started by setup, agents, or validation: PID when known, canonical cwd, command, listener/port when relevant, ownership evidence, and the repository-prescribed teardown command.
+
+Use one retirement protocol everywhere this workflow says to retire an agent or workspace:
+
+1. Inspect the agent, logs, and processes rooted in the workspace's canonical path. If a provider or child is live, stop it and verify process exit; Paseo `idle`/`error`, `paseo stop` output, or a status transition alone is not proof.
+2. From that exact workspace, run repository-prescribed teardown for isolated databases, dev servers, Playwright servers, emulators, and similar services. Stop workflow-launched CodeGraph/MCP or auxiliary servers once their evidence is no longer needed.
+3. Match any survivor by the ledger's PID, command, and canonical cwd; terminate only that exact workflow-owned process, wait, and re-inspect. Never use broad process-name kills or affect user-owned sessions.
+4. Re-scan processes and relevant listeners, verify the tree is clean and branch evidence is preserved, and record teardown evidence. Process cleanup does not require deleting the worktree.
 
 ## 2. Initial supervised implementation
 
@@ -37,7 +44,7 @@ Create one Paseo worktree and issue branch from the selected committed base. Lau
 - validate, push the issue branch, and open its single PR; and
 - return a compact handoff containing the issue, PR URL and number, base and head SHAs, commits, changed invariants, validation, decisions, residual risks, and artifact paths.
 
-Wait for completion and verify the PR, branch, validation, and handoff. Then definitively retire the implementation agent. Before assigning another writer to its workspace, prove that no provider or child process remains, the tree is clean, and local and remote issue-branch tips match.
+Wait for completion and verify the PR, branch, validation, and handoff. Then definitively retire the implementation agent with the retirement protocol, including workspace services rather than only the provider process. Before assigning another writer to its workspace, prove that no provider, child, auxiliary server, test server, or isolated database remains, the tree is clean, and local and remote issue-branch tips match.
 
 ## 3. Fresh assembled duo review
 
@@ -62,7 +69,7 @@ Adjudicate the output rather than accepting it mechanically. For this workflow, 
 
 A round is clear only when no verified worthwhile findings remain.
 
-Publish the round through `github-pr-review` as one `COMMENT` review before starting its fixers. Include the final agent-sized chunk plan and concise reasons for dropped candidates, not raw reviewer output. For a clear round, post `Fix plan: None`.
+Publish the round through `github-pr-review` as one `COMMENT` review before starting its fixers. Include the final agent-sized chunk plan and concise reasons for dropped candidates, not raw reviewer output. For a clear round, post `Fix plan: None`. Once the review and all needed evidence are durable, retire its agent and workspace services immediately with the retirement protocol.
 
 ## 4. Run one steered fixer per chunk
 
@@ -85,7 +92,7 @@ Require the fixer to:
 - avoid opening another PR, editing the existing PR, merging, or integrating other chunks; and
 - return a compact handoff with base/head SHAs, commits, invariant, validation, checkpoint steering and decisions, final reviewer outcome, and artifact paths.
 
-Do not run another solo review after all chunks finish. Independent solo supervision happens inside each `supervised-chunk` run; the next branch-wide review is the assembled duo.
+Do not run another solo review after all chunks finish. Independent solo supervision happens inside each `supervised-chunk` run; the next branch-wide review is the assembled duo. After a fixer's cleared commits, branch, validation, and artifacts are verified and no follow-up to that fixer is needed, retire it and tear down its workspace services; do not keep completed fixers alive until final handoff.
 
 ### Scheduling
 
@@ -107,7 +114,7 @@ The integrator is the issue workspace's sole writer. It must:
 - push the updated issue branch; and
 - return a compact integration handoff and decision log.
 
-The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh `supervised-chunk` reconciliation agent. Once all chunks and dependency waves are integrated and validated, retire the integrator using Paseo's process-level checks.
+The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh `supervised-chunk` reconciliation agent. Once all chunks and dependency waves are integrated and validated, retire the integrator with the full retirement protocol, including repository services and auxiliary processes rather than only Paseo's provider status.
 
 ## 6. Repeat until nothing valuable remains
 
@@ -131,4 +138,4 @@ Post or update one concise final PR comment containing:
 
 Never merge, enable auto-merge, or replace the PR body.
 
-Reconcile every workflow-owned agent and workspace, including failed launches. Verify no obsolete provider or child process remains active, no workspace has multiple writers, retained paths are unique, the issue branch is clean, and local and remote tips match. Preserve branches and evidence for any hard blocker instead of hiding or deleting ambiguous state.
+Reconcile every workflow-owned agent, workspace, and process-ledger entry, including failed launches. Verify no obsolete provider, child, database, CodeGraph/MCP server, dev/test server, emulator, or listener remains active; no workspace has multiple writers; retained paths are unique; the issue branch is clean; and local and remote tips match. Re-run the retirement protocol wherever teardown evidence is missing, then perform a final process-table and listener scan. Treat an idle/error status or successful stop command as control-plane evidence only. Report a stale label with no process as stale control-plane state; a live workflow-owned process is a hard blocker until stopped or reported with PID, command, cwd, and attempted teardown. Preserve branches and evidence for any hard blocker instead of hiding or deleting ambiguous state.
