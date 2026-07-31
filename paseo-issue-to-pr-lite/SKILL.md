@@ -1,13 +1,13 @@
 ---
 name: paseo-issue-to-pr-lite
-description: Implement a GitHub issue through Paseo with Supervised Forge, then repeat fresh drift-review-duo rounds whose worthwhile agent-sized chunks are each handled by one steered Supervised Chunk agent until a duo finds nothing valuable left.
+description: Implement a GitHub issue through Paseo with Supervised Forge, then run up to four fresh drift-review-duo rounds whose bounded resolution chunks are handled by steered Supervised Chunk agents.
 ---
 
 # Paseo Issue to PR Lite
 
-Own an issue through a verified open PR with bounded agent contexts. Use [paseo](../paseo/SKILL.md) for every workspace, [supervised-forge](../supervised-forge/SKILL.md) for the initial implementation, [supervised-chunk](../supervised-chunk/SKILL.md) for every fix chunk, [drift-review-duo](../drift-review-duo/SKILL.md) for assembled-branch reviews, and [github-pr-review](../github-pr-review/SKILL.md) to publish each review round.
+Own an issue through an open PR and a bounded, explicitly classified handoff with bounded agent contexts. Use [paseo](../paseo/SKILL.md) for every workspace, [supervised-forge](../supervised-forge/SKILL.md) for the initial implementation, [supervised-chunk](../supervised-chunk/SKILL.md) for every fix chunk, [drift-review-duo](../drift-review-duo/SKILL.md) for assembled-branch reviews, and [github-pr-review](../github-pr-review/SKILL.md) to publish each review round.
 
-The user preauthorizes this workflow to make implementation, review, and fix decisions. Do not request approval unless work reaches a genuine product or repository-policy decision that repository evidence cannot resolve. Stop only for a hard external blocker, unsafe irreversible action outside the requested issue/PR lifecycle, or ambiguous live-writer state that remains after Paseo recovery.
+The user preauthorizes this workflow to make implementation, review, and fix decisions. Do not request approval unless work reaches a genuine product or repository-policy decision that repository evidence cannot resolve. The workflow may finish before round 4 when an assembled review is clear. Otherwise, stop early only for a hard external blocker, unsafe irreversible action outside the requested issue/PR lifecycle, or ambiguous live-writer state that remains after Paseo recovery. The four-round cap is a normal bounded handoff condition.
 
 Keep contexts bounded:
 
@@ -15,9 +15,17 @@ Keep contexts bounded:
 - use a fresh duo-review agent for every assembled review round;
 - give each worthwhile resolution chunk to exactly one fresh supervised fixer;
 - use a fresh integrator for each review round rather than reviving the initial implementer; and
-- pass compact structured handoffs and artifact paths, never accumulated transcripts or repeated raw logs.
+- pass compact handoffs and relevant artifact paths, never accumulated transcripts or repeated raw logs.
 
 Never allow more than one active writer in a workspace or more than one owner for an invariant.
+
+## Bounded execution and supervision
+
+The original issue and its acceptance criteria are the outer scope boundary. In every `supervised-forge` or `supervised-chunk` prompt, make the persistent correctness reviewer the scope supervisor. At the initial plan or chunk contract, every milestone/checkpoint, and final clearance, it must compare proposed and actual work with that boundary. It must flag adjacent features, broad cleanup, speculative hardening, dependency changes, and architecture work that are not strictly required for the assigned acceptance evidence. The writer must remove or defer scope expansion instead of absorbing it. If material expansion is genuinely required to complete the issue or chunk safely, stop that child and return the evidence to the workflow for adjudication; supervision must never silently grow an issue into a larger project.
+
+Consume a review round as soon as its assembled `drift-review-duo` agent begins substantive execution. Run at most four. Only a launch proven never to have started the provider is a failed pre-execution attempt that does not count; a started review consumes its round even if transport or agent failure prevents completion. Rounds 1–3 may produce fixes and another assembled review. Round 4 is terminal: publish it, but do not dispatch its remaining findings; stop automation, clean up, and report whether the PR is clear or which worthwhile chunks remain.
+
+Launch every workflow agent in the background, then use `paseo wait <agent-id> --json` as the dedicated completion primitive. After every `paseo send` that starts more work, wait the same way. Do not substitute a foreground `paseo run`, `paseo logs --follow`, `watch`, polling loops, sleeps, shell `timeout`, or a generic command invocation with an oversized tool timeout. Do not pass `--timeout` to `paseo wait`; let Paseo report the idle transition, then immediately inspect the agent and recent logs. For parallel fixers, call `paseo wait` once per ID; agents that already finished return immediately.
 
 ## 1. Preflight
 
@@ -38,19 +46,22 @@ Use one retirement protocol everywhere this workflow says to retire an agent or 
 
 Create one Paseo worktree and issue branch from the selected committed base. Launch one agent whose prompt begins with `/skill:supervised-forge` and explicitly requires it to:
 
-- implement the complete issue;
+- implement the complete issue without expanding beyond its acceptance criteria;
+- brief the persistent reviewer with the standing scope-supervision contract above and include scope-control outcomes in the handoff;
 - use the Paseo-created worktree without creating a nested worktree;
 - resolve repository-defined decisions as required by repository instructions;
 - validate, push the issue branch, and open its single PR; and
 - return a compact handoff containing the issue, PR URL and number, base and head SHAs, commits, changed invariants, validation, decisions, residual risks, and artifact paths.
 
-Wait for completion and verify the PR, branch, validation, and handoff. Then definitively retire the implementation agent with the retirement protocol, including workspace services rather than only the provider process. Before assigning another writer to its workspace, prove that no provider, child, auxiliary server, test server, or isolated database remains, the tree is clean, and local and remote issue-branch tips match.
+Wait with `paseo wait <agent-id> --json`, inspect the agent and recent logs, and verify the PR, branch, validation, and handoff. Then definitively retire the implementation agent with the retirement protocol, including workspace services rather than only the provider process. Before assigning another writer to its workspace, prove that no provider, child, auxiliary server, test server, or isolated database remains, the tree is clean, and local and remote issue-branch tips match.
 
 ## 3. Fresh assembled duo review
 
-For every review round, fetch the latest PR head and create a fresh, isolated, clean Paseo review worktree at that exact commit. Verify its canonical path differs from every writer workspace before launching anything in it.
+For every review round, fetch the latest PR head and create a fresh, isolated, clean Paseo review worktree at that exact commit. Record its round number before launch, mark it consumed when substantive execution starts, and never create round 5. Verify its canonical path differs from every writer workspace before launching anything in it.
 
-Launch one foreground review agent with a supported output schema. Its prompt invokes `/skill:drift-review-duo`, forbids editing or posting to GitHub, and includes the PR number, base and head SHAs, original issue, acceptance criteria, repository profile, and assembled validation as the explicit target and review intent. Require structured findings. Every verified finding must include:
+Launch one background review agent. Its prompt invokes `/skill:drift-review-duo`, forbids editing, and includes the PR number, base and head SHAs, original issue, acceptance criteria, repository profile, and assembled validation as the explicit target and review intent. Require it to adjudicate its findings, then use `github-pr-review` to post exactly one consolidated `COMMENT` review headed `## Automated drift review — Round <n>/4`. The posted review is the sole findings handoff; the agent's final response must contain only the verified review permalink, never a copy or summary of the review body. Wait with `paseo wait <agent-id> --json`, inspect the agent and recent logs, then fetch the posted review from GitHub by its verified permalink or unique round heading and read that body as the round result. If the permalink is missing but the uniquely headed review exists, use the posted review instead of asking the agent to restate it. If no unique posted review exists, stop as an infrastructure blocker, report the consumed round and preserved logs, and do not launch a replacement reviewer.
+
+Require each verified finding to include, concisely:
 
 - identifier, severity, and classification;
 - realistic trigger, mechanism, impact, and evidence;
@@ -60,16 +71,16 @@ Launch one foreground review agent with a supported output schema. Its prompt in
 
 The duo may combine findings only when one agent can own the combined invariant end to end. It must not combine unrelated findings merely to reduce agent count.
 
-Adjudicate the output rather than accepting it mechanically. For this workflow, worthwhile wrong-seam findings become current-PR resolution chunks; this explicitly overrides `drift-review-duo`'s default follow-up-issue handoff because the workflow is responsible for fixing worthwhile work before completion.
+The review agent applies the following adjudication before posting, and the workflow verifies the posted result before dispatch. A finding is eligible for the current PR only when the branch introduced it or it is necessary to satisfy the original issue's acceptance criteria. For eligible findings, worthwhile wrong-seam findings become current-PR resolution chunks; this explicitly overrides `drift-review-duo`'s default follow-up-issue handoff because the workflow is responsible for fixing worthwhile in-scope work before completion.
 
-- verified user-facing bugs are worthwhile;
-- wrong-seam fixes or refactors with concrete evidence that they prevent likely defects are worthwhile;
-- speculative, duplicate, disproven, unrelated, or already-recorded findings are not work; and
-- other findings require a concrete fix-versus-defer trade-off, recorded concisely.
+- eligible verified user-facing bugs are worthwhile;
+- eligible wrong-seam fixes or refactors with concrete evidence that they prevent likely defects in an issue-owned invariant are worthwhile;
+- speculative, duplicate, disproven, unrelated, pre-existing, or already-recorded findings are not current-PR work; and
+- other eligible findings require a concrete fix-versus-defer trade-off, recorded concisely.
 
 A round is clear only when no verified worthwhile findings remain.
 
-Publish the round through `github-pr-review` as one `COMMENT` review before starting its fixers. Include the final agent-sized chunk plan and concise reasons for dropped candidates, not raw reviewer output. For a clear round, post `Fix plan: None`. Once the review and all needed evidence are durable, retire its agent and workspace services immediately with the retirement protocol.
+The review agent publishes the final eligible findings, agent-sized chunk plan, and concise reasons for dropped candidates through `github-pr-review`; it omits intermediate analysis and uses `Fix plan: None` for a clear round. After `paseo wait`, the workflow reads this posted review directly and must not publish a second review or ask the agent to reproduce its contents. The review must exist on the PR before any fixer starts. Once it and all needed evidence are durable, retire the review agent and workspace services immediately with the retirement protocol.
 
 ## 4. Run one steered fixer per chunk
 
@@ -86,13 +97,14 @@ Require the fixer to:
 
 - use the Paseo-created worktree without creating a nested worktree;
 - implement this chunk continuously rather than pre-slicing it into milestones;
-- use one persistent read-only reviewer for event-driven in-progress checks, evidence-backed steering, and final clearance;
+- use one persistent read-only reviewer for event-driven in-progress checks, evidence-backed steering, final clearance, and explicit scope control;
+- make that reviewer compare each checkpoint and final diff with the exact chunk contract and reject unassigned neighboring work;
 - keep every checkpoint and correction inside the exact chunk contract;
 - commit and push the cleared chunk branch;
 - avoid opening another PR, editing the existing PR, merging, or integrating other chunks; and
-- return a compact handoff with base/head SHAs, commits, invariant, validation, checkpoint steering and decisions, final reviewer outcome, and artifact paths.
+- return a compact handoff with base/head SHAs, commits, invariant, validation, checkpoint steering and decisions, scope-control outcome, final reviewer outcome, and artifact paths.
 
-Do not run another solo review after all chunks finish. Independent solo supervision happens inside each `supervised-chunk` run; the next branch-wide review is the assembled duo. After a fixer's cleared commits, branch, validation, and artifacts are verified and no follow-up to that fixer is needed, retire it and tear down its workspace services; do not keep completed fixers alive until final handoff.
+Do not run another solo review after all chunks finish. Independent solo supervision happens inside each `supervised-chunk` run; the next branch-wide review is the assembled duo. After `paseo wait <agent-id> --json` returns, inspect the fixer and logs. When its cleared commits, branch, validation, and artifacts are verified and no follow-up is needed, retire it and tear down its workspace services; do not keep completed fixers alive until final handoff.
 
 ### Scheduling
 
@@ -114,21 +126,29 @@ The integrator is the issue workspace's sole writer. It must:
 - push the updated issue branch; and
 - return a compact integration handoff and decision log.
 
-The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh `supervised-chunk` reconciliation agent. Once all chunks and dependency waves are integrated and validated, retire the integrator with the full retirement protocol, including repository services and auxiliary processes rather than only Paseo's provider status.
+The integrator must not invent a large conflict resolution. A conflict that reveals shared invariant ownership or invalid independence returns the affected work to one fresh `supervised-chunk` reconciliation agent. Wait for the integrator with `paseo wait <agent-id> --json`, then inspect its result and logs. Once all chunks and dependency waves are integrated and validated, retire the integrator with the full retirement protocol, including repository services and auxiliary processes rather than only Paseo's provider status.
 
-## 6. Repeat until nothing valuable remains
+## 6. Repeat within four rounds
 
-Run a fresh full `drift-review-duo` against the assembled PR after all selected chunks are integrated. Never substitute per-chunk reviews for this assembled check.
+After all selected chunks from rounds 1–3 are integrated, emit exactly one concise progress update before the next review:
 
-- If the duo finds worthwhile work, publish its chunk plan and repeat `supervised-chunk` dispatch, integration, assembled validation, and a fresh duo.
-- If the duo finds nothing worthwhile, verify required CI and leave the PR open for human review.
+> Round `<n>/4`: `<count>` worthwhile chunk(s) integrated; validation `<result>`; starting round `<n+1>`.
 
-Do not impose an arbitrary review-round limit. Repeated findings against the same invariant are evidence of a wrong seam: assign one `supervised-chunk` reconciliation agent to the invariant rather than stacking another local guard. Stop only when the PR is clear by the worthwhile-work standard or a hard blocker prevents safe progress.
+This is a progress event, not a stopping point or an invitation for approval. Do not include transcripts or finding walkthroughs.
+
+Then run a fresh full `drift-review-duo` against the assembled PR. Never substitute per-chunk reviews for this assembled check.
+
+- In rounds 1–3, if the duo finds worthwhile work, publish its chunk plan and repeat `supervised-chunk` dispatch, integration, assembled validation, the concise between-round status, and a fresh duo.
+- If any round has no worthwhile findings, verify required CI and leave the PR open for human review.
+- After round 4, do not launch fixers or another review. If worthwhile findings remain, leave them unmodified as explicit residual chunks, mark the workflow `round cap reached — not verified clear`, and hand off. If none remain, mark it `clear within round cap`. Cleanup and final reporting still run in either case.
+
+Never exceed four assembled review rounds. Repeated findings against the same invariant in rounds 1–3 are evidence of a wrong seam: assign one `supervised-chunk` reconciliation agent to the invariant rather than stacking another local guard. A round-4 recurrence is residual work for human handoff, not permission to continue automatically.
 
 ## 7. Final handoff and cleanup
 
 Post or update one concise final PR comment containing:
 
+- workflow status: `clear within round cap`, `round cap reached — not verified clear`, or `hard blocker`;
 - validation and CI results;
 - duo rounds and review permalinks;
 - integrated chunk IDs and commits;
