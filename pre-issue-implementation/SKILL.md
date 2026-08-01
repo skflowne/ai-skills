@@ -48,6 +48,7 @@ Before posting, confirm that every remaining step is necessary for the issue's a
 ## 4. Post the plan
 
 Post the final plan as a new issue comment so the original issue description remains intact.
+Treat that first plan comment as the canonical plan: if the plan is revised later, edit the original comment in place instead of posting another plan comment. Preserve or recover its comment URL or ID so updates target the correct comment.
 
 1. Write the comment to a scratch Markdown file, preferably `.agents/tmp/pre-issue-plan-<issue>.md`.
 2. Check the Markdown includes a fenced `mermaid` block and that the diagram syntax is internally consistent.
