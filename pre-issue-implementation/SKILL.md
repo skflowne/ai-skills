@@ -27,7 +27,7 @@ Write an implementation plan another agent can execute without repeating the inv
 6. **Risks and boundaries** — compatibility, migration, rollout, security, performance, or operational concerns that materially apply. State deliberate non-goals when they prevent scope creep.
 7. **Mermaid diagram** — a valid fenced `mermaid` diagram showing the planned component, control, or data flow. Use the diagram type that best explains the change; do not add a decorative diagram that merely repeats the step list.
 
-Use concrete language. Do not leave placeholders such as “update logic,” “wire it up,” “handle edge cases,” or “add tests.” Name the logic, integration point, edge cases, and expected assertions.
+Use concrete language. Prefer concise examples when they can replace lengthy explanation, and do not repeat in prose what an example already makes clear. Do not leave placeholders such as “update logic,” “wire it up,” “handle edge cases,” or “add tests.” Name the logic, integration point, edge cases, and expected assertions.
 
 ## 3. Remove overkill
 
