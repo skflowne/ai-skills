@@ -1,6 +1,6 @@
 ---
 name: github-pr-review
-description: "Post GitHub PR findings as one consolidated review, create follow-up issues, and fetch PR/issue context via gh CLI. Use when posting review findings, opening follow-up issues, or handling any gh pull-request review workflow."
+description: "Post GitHub PR findings as one consolidated review, create follow-up issues, and fetch PR/issue context via gh CLI. Use only when the user explicitly names and requests this skill."
 ---
 
 # GitHub PR review

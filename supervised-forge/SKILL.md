@@ -1,6 +1,6 @@
 ---
 name: supervised-forge
-description: Implement code changes with one primary author and one persistent independent correctness reviewer using milestone-by-milestone review gates. Use when the user asks for implementation with continuous independent review or explicitly invokes $supervised-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
+description: "Implement code changes with one primary author and one persistent independent correctness reviewer using milestone-by-milestone review gates. Use only when the user explicitly names and requests this skill."
 ---
 
 # Supervised Forge

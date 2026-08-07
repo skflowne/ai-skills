@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Orchestrate a task using sub-agents working in parallel, chosen to fit each part's complexity"
+description: "Orchestrate a task using sub-agents working in parallel, chosen to fit each part's complexity. Use only when the user explicitly names and requests this skill."
 ---
 
 # Role

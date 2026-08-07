@@ -1,6 +1,6 @@
 ---
 name: portolan-forge
-description: Implement nontrivial or large repository changes through ownership-based delegation, with every root or delegated scope using one primary implementer and three focused, independent reviewers for repository-aligned testing, architecture, and maintainability. Use when the user explicitly invokes Portolan Forge or implementation work needs recursive delegation and these review gates.
+description: "Implement nontrivial or large repository changes through ownership-based delegation, with every root or delegated scope using one primary implementer and three focused, independent reviewers for repository-aligned testing, architecture, and maintainability. Use only when the user explicitly names and requests this skill."
 ---
 
 # Portolan Forge

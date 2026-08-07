@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: "Instructions to review a given PR"
+description: "Review a given PR. Use only when the user explicitly names and requests this skill."
 ---
 
 # Goal

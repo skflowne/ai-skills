@@ -1,6 +1,6 @@
 ---
 name: supervised-chunk
-description: Implement one bounded change with a single autonomous writer and one persistent independent reviewer that inspects stable work in progress, gives evidence-backed steering, and clears the final chunk without milestone-based implementation gates.
+description: "Implement one bounded change with a single autonomous writer and one persistent independent reviewer that inspects stable work in progress, gives evidence-backed steering, and clears the final chunk without milestone-based implementation gates. Use only when the user explicitly names and requests this skill."
 ---
 
 # Supervised Chunk

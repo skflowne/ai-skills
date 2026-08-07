@@ -1,6 +1,6 @@
 ---
 name: tdd-forge
-description: Implement code changes with one primary author, one persistent independent correctness reviewer, and one persistent automated-test coverage reviewer using milestone-by-milestone RED/GREEN. Use when the user asks for implementation with continuous independent review, test-first development, review after meaningful changes instead of only at the end, or explicitly invokes $tdd-forge. Do not use for read-only reviews or trivial edits where no implementation is needed.
+description: "Implement code changes with one primary author, one persistent independent correctness reviewer, and one persistent automated-test coverage reviewer using milestone-by-milestone RED/GREEN. Use only when the user explicitly names and requests this skill."
 ---
 
 # TDD Forge

@@ -1,6 +1,6 @@
 ---
 name: code-quality-review
-description: Review a PR, diff, commit, or selected files for maintainability and code quality. Use to find unnecessary complexity, duplication, weak abstractions, poor naming, hidden coupling, inconsistent patterns, and testability problems while avoiding speculative or purely stylistic feedback.
+description: "Review a PR, diff, commit, or selected files for maintainability and code quality, finding unnecessary complexity, duplication, weak abstractions, poor naming, hidden coupling, inconsistent patterns, and testability problems while avoiding speculative or purely stylistic feedback. Use only when the user explicitly names and requests this skill."
 ---
 
 # Code Quality Review

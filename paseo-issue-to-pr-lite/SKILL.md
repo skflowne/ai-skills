@@ -1,6 +1,6 @@
 ---
 name: paseo-issue-to-pr-lite
-description: Implement a GitHub issue through Paseo with Supervised Forge, then run up to four fresh drift-review-duo rounds whose bounded resolution chunks are handled by steered Supervised Chunk agents.
+description: "Implement a GitHub issue through Paseo with Supervised Forge, then run up to four fresh drift-review-duo rounds whose bounded resolution chunks are handled by steered Supervised Chunk agents. Use only when the user explicitly names and requests this skill."
 ---
 
 # Paseo Issue to PR Lite

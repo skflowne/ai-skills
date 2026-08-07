@@ -1,6 +1,6 @@
 ---
 name: codex-workflow
-description: Run the role-routed issue-to-PR, issue implementation, or PR review/fix dynamic workflows from Pi. Use only when the user explicitly asks to launch one of these workflows.
+description: "Run the role-routed issue-to-PR, issue implementation, or PR review/fix dynamic workflows from Pi. Use only when the user explicitly names and requests this skill."
 disable-model-invocation: true
 ---
 

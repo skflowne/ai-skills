@@ -1,6 +1,6 @@
 ---
 name: paseo-issue-to-pr
-description: Implement a GitHub issue through Paseo with Portolan Forge and CodeGraph evaluation, then run up to four autonomous drift-review-duo rounds with bounded fix dispatch before handing the PR to a human.
+description: "Implement a GitHub issue through Paseo with Portolan Forge and CodeGraph evaluation, then run up to four autonomous drift-review-duo rounds with bounded fix dispatch before handing the PR to a human. Use only when the user explicitly names and requests this skill."
 ---
 
 # Paseo Issue to PR

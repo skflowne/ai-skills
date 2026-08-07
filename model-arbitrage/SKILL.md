@@ -1,6 +1,6 @@
 ---
 name: model-arbitrage
-description: "Send one identical prompt to two model runs in parallel, then arbitrate their answers into a single final answer that attributes what came from whom and records what was discarded. Use when the user wants a task cross-checked by a second opinion, asks to compare model outputs, or invokes /model-arbitrage."
+description: "Send one identical prompt to two model runs in parallel, then arbitrate their answers into a single final answer that attributes what came from whom and records what was discarded. Use only when the user explicitly names and requests this skill."
 ---
 
 # Model Arbitrage

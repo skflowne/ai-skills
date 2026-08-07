@@ -1,6 +1,6 @@
 ---
 name: council-review
-description: "Use independent sub-agents as a panel of expert reviewers (correctness, UI/UX, architecture, security) in parallel, then aggregate and verify findings"
+description: "Use independent sub-agents as a panel of expert reviewers (correctness, UI/UX, architecture, security) in parallel, then aggregate and verify findings. Use only when the user explicitly names and requests this skill."
 ---
 
 # Council Review

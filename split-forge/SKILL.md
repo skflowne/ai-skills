@@ -1,6 +1,6 @@
 ---
 name: split-forge
-description: "Implement a large change as several independently-scoped chunks running in parallel, with the main session model owning decomposition, cross-cutting concerns, and integration. Use when a task is too large for one PR or one reviewer pass, when work splits into parts that touch different files, or when the user explicitly invokes $split-forge. Do not use for single-seam changes that belong in one cohesive PR."
+description: "Implement a large change as several independently-scoped chunks running in parallel, with the main session model owning decomposition, cross-cutting concerns, and integration. Use only when the user explicitly names and requests this skill."
 ---
 
 # Split Forge

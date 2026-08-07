@@ -1,6 +1,6 @@
 ---
 name: trade-off-arbitrage
-description: Analyze a decision by delegating to two opposing expert subagents—an advocate and a skeptic—then independently arbitrate their evidence into a balanced trade-off analysis. Use for consequential, ambiguous, or contested choices with realistic alternatives.
+description: "Analyze a decision by delegating to two opposing expert subagents—an advocate and a skeptic—then independently arbitrate their evidence into a balanced trade-off analysis. Use only when the user explicitly names and requests this skill."
 ---
 
 # Trade-off Arbitrage

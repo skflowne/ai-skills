@@ -1,6 +1,6 @@
 ---
 name: codegraph-evaluation
-description: Evaluate CodeGraph during real repository work. Use when asked to assess CodeGraph's availability, index health, successful invocations, useful discoveries, limitations, fallback searches, or worktree initialization.
+description: "Evaluate CodeGraph during real repository work, including its availability, index health, successful invocations, useful discoveries, limitations, fallback searches, and worktree initialization. Use only when the user explicitly names and requests this skill."
 ---
 
 # CodeGraph Evaluation

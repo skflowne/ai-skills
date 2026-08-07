@@ -1,6 +1,6 @@
 ---
 name: trade-off-analysis
-description: Analyze a decision, proposal, design, or set of alternatives from multiple relevant angles. Use when the user wants options compared with their benefits, drawbacks, risks, constraints, trade-offs, and a conditional recommendation.
+description: "Analyze a decision, proposal, design, or set of alternatives from multiple relevant angles, including benefits, drawbacks, risks, constraints, trade-offs, and a conditional recommendation. Use only when the user explicitly names and requests this skill."
 ---
 
 # Trade-off Analysis

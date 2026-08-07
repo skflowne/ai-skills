@@ -1,6 +1,6 @@
 ---
 name: third-party-repo-audit
-description: "Audit a freshly-cloned or vendored third-party repo for malicious/backdoored behavior before trusting it — distinct from reviewing your own diff (use security-review for that)"
+description: "Audit a freshly-cloned or vendored third-party repo for malicious or backdoored behavior before trusting it, distinct from reviewing your own diff. Use only when the user explicitly names and requests this skill."
 ---
 
 # Goal

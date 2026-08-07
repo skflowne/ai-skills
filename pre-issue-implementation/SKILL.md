@@ -1,6 +1,6 @@
 ---
 name: pre-issue-implementation
-description: Prepare a concrete, codebase-grounded implementation plan for an existing GitHub issue, simplify the plan by removing overengineering, and post the final plan to the issue with a Mermaid diagram. Use before beginning implementation of an issue.
+description: "Prepare a concrete, codebase-grounded implementation plan for an existing GitHub issue, simplify the plan by removing overengineering, and post the final plan to the issue with a Mermaid diagram. Use only when the user explicitly names and requests this skill."
 ---
 
 # Pre-issue implementation plan

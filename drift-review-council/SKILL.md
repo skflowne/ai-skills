@@ -1,6 +1,6 @@
 ---
 name: drift-review-council
-description: "Run a fixed six-expert panel that checks correctness and hunts AI-agent drift in a PR or branch: implementation-vs-intent, duplicated logic, bypassed shared modules, wrong seams, test accretion, and convention violations. Use when the user asks for a council drift review or a slop check that must also verify feature correctness."
+description: "Run a fixed six-expert panel that checks correctness and hunts AI-agent drift in a PR or branch: implementation-vs-intent, duplicated logic, bypassed shared modules, wrong seams, test accretion, and convention violations. Use only when the user explicitly names and requests this skill."
 ---
 
 # Drift Review (council)

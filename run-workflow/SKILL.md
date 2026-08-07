@@ -1,6 +1,6 @@
 ---
 name: run-workflow
-description: Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised) with preflighted, validated args. Use whenever the user asks to implement an issue or review a PR through one of these workflows — including in prose, not just as a slash command. Do not call Workflow() for these entry points without going through here.
+description: "Launch a native dynamic workflow (issue-to-pr, supervised-implement, review-supervised) with preflighted, validated arguments. Use only when the user explicitly names and requests this skill."
 ---
 
 # Run Workflow

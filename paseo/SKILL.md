@@ -1,6 +1,6 @@
 ---
 name: paseo
-description: Spawn and manage durable coding agents through the Paseo CLI, especially parallel agents in isolated worktree workspaces. Use when the user asks to run work in Paseo, create separate Paseo workspaces, launch several agents concurrently, or invoke another skill inside new Paseo agents.
+description: "Spawn and manage durable coding agents through the Paseo CLI, especially parallel agents in isolated worktree workspaces. Use only when the user explicitly names and requests this skill."
 ---
 
 # Paseo

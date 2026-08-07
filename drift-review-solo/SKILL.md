@@ -1,6 +1,6 @@
 ---
 name: drift-review-solo
-description: "Single-agent correctness-and-drift review: same lenses and classification as drift-review-council, but you review directly instead of spawning a panel. Use for small diffs, quick slop checks, or when the token cost of a six-expert panel is not warranted."
+description: "Single-agent correctness-and-drift review using the same lenses and classification as drift-review-council, but reviewing directly instead of spawning a panel. Use only when the user explicitly names and requests this skill."
 ---
 
 # Drift Review (solo)

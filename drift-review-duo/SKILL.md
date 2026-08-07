@@ -1,6 +1,6 @@
 ---
 name: drift-review-duo
-description: "Lightweight two-expert review: one correctness-vs-review-intent reviewer and one drift reviewer in parallel, then aggregate, classify, and hand off. Use for routine PRs or branches where a full council is overkill but both 'does it meet the goal' and 'does it erode the codebase' must be checked."
+description: "Run a lightweight two-expert review with one correctness-vs-review-intent reviewer and one drift reviewer in parallel, then aggregate, classify, and hand off. Use only when the user explicitly names and requests this skill."
 ---
 
 # Drift Review (duo)

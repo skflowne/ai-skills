@@ -1,6 +1,6 @@
 ---
 name: create-issue
-description: "Generate a new github issue to define what needs to be done"
+description: "Generate a new GitHub issue to define what needs to be done. Use only when the user explicitly names and requests this skill."
 ---
 
 Interview me so that we reach a shared understanding of what needs to be done, and then interview me until we reach a shared understanding of how the code should be architectured to achieve the goal.

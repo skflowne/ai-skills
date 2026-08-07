@@ -1,6 +1,6 @@
 ---
 name: fix-pr-comments
-description: "How to handle fixing PR after review"
+description: "Handle fixes to a PR after review. Use only when the user explicitly names and requests this skill."
 ---
 
 - First summarize comments on the PR, I expect there will be clear instructions left by the reviewer

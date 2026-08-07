@@ -1,6 +1,6 @@
 ---
 name: yolo-council-review
-description: "Compose a custom panel of expert reviewers based on the review goal, run them in parallel, then aggregate and verify findings"
+description: "Compose a custom panel of expert reviewers based on the review goal, run them in parallel, then aggregate and verify findings. Use only when the user explicitly names and requests this skill."
 ---
 
 # YOLO Council Review

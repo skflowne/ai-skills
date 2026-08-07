@@ -1,6 +1,6 @@
 ---
 name: github-issue-create
-description: "Create GitHub issues via gh CLI with a cross-platform helper script. Use when filing issues after create-issue interviews, opening follow-up issues, or any gh issue create workflow."
+description: "Create GitHub issues via gh CLI with a cross-platform helper script. Use only when the user explicitly names and requests this skill."
 ---
 
 # GitHub issue create
