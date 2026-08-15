@@ -9,9 +9,9 @@ Follow `AGENTS.md` and the repository instructions it selects. They define the e
 
 ## Workflow
 
-1. Read the task and repository instructions.
+1. Read the task and repository instructions. If the task is an issue, first verify the issue state, discussion, linked issues and PRs, and all relevant existing work across the codebase, local/remote branches, worktrees, commits, and open/closed/draft PRs. A small read-only scout fleet is advised when the history or repository state is nontrivial, sized proportionally to the task. Give each scout one bounded concern (issue context, codebase status, or branch/PR state) and require a concise, evidence-backed summary with only key state, exact references, and remaining-work implications—not raw logs or full transcripts. Use fewer scouts for narrow work and none when one quick pass is enough. Synthesize the summaries before planning; never assume the issue is untouched or that a fresh implementation is required.
 2. Before planning or editing, explore the current implementation end to end. Identify behavior and data flow, existing owners and boundaries, extension points, related shared concepts, repository-prescribed tests, and local conventions. For a large codebase, delegate bounded read-only exploration by concern and synthesize the findings with code references. Resolve material unknowns instead of inferring architecture from names.
-3. From that evidence, define the smallest complete change and the number of implementation owners it needs.
+3. From that evidence, define the smallest complete remaining change and the number of implementation owners it needs.
 4. Choose the execution topology from the plan:
    - **One implementer:** The main agent implements directly and creates and manages its own three reviewer agents. Do not spawn an implementation subagent.
    - **Multiple implementers:** The main agent only plans, delegates, supervises, and integrates. It does not implement or run root reviewers. Each delegated implementer creates and manages its own three reviewer agents.

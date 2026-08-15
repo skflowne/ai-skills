@@ -1,7 +1,7 @@
 export const meta = {
   name: 'issue-to-pr',
-  description: 'Implement a GitHub issue end to end with Supervised Forge, then loop a tailored yolo-council review/fix until only nits remain',
-  whenToUse: 'Launch via the run-workflow skill, not directly — it preflights the working tree and pins the base branch once for both stages, which this workflow cannot do for itself. args MUST be an object: { issueNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", baseBranch: "main", allowDirtyTree: false }. Passing a bare string ("5") makes issueNumber undefined.',
+  description: 'Verify issue context and existing work, implement the remaining GitHub issue scope with Supervised Forge, then loop a tailored yolo-council review/fix until only nits remain',
+  whenToUse: 'Launch via the run-workflow skill, not directly — it discovers issue state and existing work, preflights the working tree, and pins the base branch once for both stages, which this workflow cannot do for itself. args MUST be an object: { issueNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", baseBranch: "main", allowDirtyTree: false }. Passing a bare string ("5") makes issueNumber undefined.',
 }
 
 // These sibling workflows are resolved by their final registered name, which

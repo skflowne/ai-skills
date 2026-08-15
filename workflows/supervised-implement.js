@@ -1,8 +1,9 @@
 export const meta = {
   name: 'supervised-implement',
-  description: 'Implement a GitHub issue end to end with Supervised Forge (script-driven milestone review gates) and open a PR',
-  whenToUse: 'Launch via the run-workflow skill, not directly — it preflights the working tree and pins the base branch, which this workflow cannot do for itself. args MUST be an object: { issueNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", baseBranch: "main", allowDirtyTree: false }. Passing a bare string ("5") makes issueNumber undefined.',
+  description: 'Verify issue context and existing work, then implement the remaining GitHub issue scope with Supervised Forge and open a PR',
+  whenToUse: 'Launch via the run-workflow skill, not directly — it performs proportional issue discovery, preflights the working tree, and pins the base branch, which this workflow cannot do for itself. args MUST be an object: { issueNumber: <positive integer>, repoSlug: "owner/name", repoPath: "/abs/path", baseBranch: "main", allowDirtyTree: false }. Passing a bare string ("5") makes issueNumber undefined.',
   phases: [
+    { title: 'Discovery' },
     { title: 'Setup' },
     { title: 'Plan' },
     { title: 'Milestones' },
@@ -68,6 +69,20 @@ const ISSUE_RESOLVE_SCHEMA = {
     url: { type: 'string' },
   },
   required: ['found'],
+}
+
+const ISSUE_DISCOVERY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    safeToStartFresh: { type: 'boolean' },
+    summary: { type: 'string' },
+    relatedPrs: { type: 'array', items: { type: 'string' } },
+    relatedBranches: { type: 'array', items: { type: 'string' } },
+    existingBehavior: { type: 'array', items: { type: 'string' } },
+    remainingWork: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['safeToStartFresh', 'summary', 'relatedPrs', 'relatedBranches', 'existingBehavior', 'remainingWork'],
 }
 
 // One setup agent, one schema. The first group is what the run needs from setup; the second is the
@@ -253,7 +268,7 @@ Fix round ${round} has since committed fixes for earlier findings on top — rev
   return { fixRounds: round, openFindings: findings }
 }
 
-phase('Setup')
+phase('Discovery')
 // Pin issue #N to an exact match in this repo before anything runs — a mistyped number fails fast
 // here instead of a later agent guessing at a similarly-numbered issue, a PR, or another repo.
 // Later agents cross-check against this pin rather than re-resolving with room to guess.
@@ -270,14 +285,32 @@ ${REPO_CONTEXT}`,
 if (resolvedIssue === null || resolvedIssue.found !== true || resolvedIssue.number !== ISSUE_NUMBER || !resolvedIssue.title) {
   throw new Error(`Issue #${ISSUE_NUMBER} did not resolve to an exact match in this repo — stopping instead of guessing`)
 }
-if (resolvedIssue.state && resolvedIssue.state.toUpperCase() !== 'OPEN') {
-  throw new Error(`Issue #${ISSUE_NUMBER} ("${resolvedIssue.title}") is ${resolvedIssue.state} — stopping instead of implementing a non-open issue`)
-}
 const ISSUE_PIN = `issue #${ISSUE_NUMBER} ("${resolvedIssue.title}")`
 log(`Pinned ${ISSUE_PIN}: ${resolvedIssue.url || 'no url reported'} (${resolvedIssue.state})`)
 
-// One agent does the setup: it needs judgment (inspect state, pick the base, clear stale
-// worktrees). What it does NOT get is the final word on whether it complied — it reports the raw
+// Direct workflow invocation still gets a read-only backstop even though run-workflow performs this
+// discovery before launch. The workflow only knows how to create a fresh implementation branch; it
+// must fail safely rather than erase, ignore, or duplicate work that already exists.
+const discovery = await agent(`Perform a bounded, read-only discovery pass for ${ISSUE_PIN}. Do not edit files, create or switch branches, create worktrees, or change GitHub state.
+
+Verify the issue body, current acceptance criteria, discussion, linked issues, and linked PRs. Inspect open, closed, and draft PRs plus local/remote branches, worktrees, and commits that may contain related implementation. Inspect the relevant code and tests enough to identify requested behavior already present on the base or another branch. Do not assume the issue is untouched or that a matching branch is stale.
+
+Return only a concise, evidence-backed summary and short lists of exact PR, branch, behavior, and remaining-work references — no raw command logs or transcript. Set safeToStartFresh=true only when the evidence shows no related implementation exists and a fresh branch would not duplicate or overwrite work. If related work exists or the state is uncertain, set it false.
+
+${REPO_CONTEXT}`,
+  { label: 'discovery:existing-work', schema: ISSUE_DISCOVERY_SCHEMA, agentType: 'general-purpose' })
+if (discovery === null) throw new Error(`Could not verify existing work for ${ISSUE_PIN} — refusing to assume it is untouched`)
+log(`Discovery: ${discovery.summary}`)
+if (resolvedIssue.state && resolvedIssue.state.toUpperCase() !== 'OPEN') {
+  throw new Error(`${ISSUE_PIN} is ${resolvedIssue.state}; discovery completed before stopping: ${discovery.summary}`)
+}
+if (!discovery.safeToStartFresh) {
+  throw new Error(`Existing or uncertain work was found for ${ISSUE_PIN}; this fresh-branch workflow will not duplicate or overwrite it. ${discovery.summary} PRs: ${discovery.relatedPrs.join(', ') || 'none identified'}. Branches: ${discovery.relatedBranches.join(', ') || 'none identified'}. Remaining work: ${discovery.remainingWork.join('; ') || 'not established'}`)
+}
+
+phase('Setup')
+// One agent does the setup: it needs judgment (inspect state, pick the base, create isolation).
+// What it does NOT get is the final word on whether it complied — it reports the raw
 // facts below and the script enforces them, so a run that quietly checked out in the user's
 // checkout instead of creating a worktree fails here rather than proceeding and looking normal.
 const branchResult = await agent(`Set up an isolated worktree to implement ${ISSUE_PIN}. The user's own checkout must be left exactly as you found it: never run \`git checkout\`, \`git switch\`, \`git reset\`, or \`git stash\` in it.
@@ -290,7 +323,7 @@ const branchResult = await agent(`Set up an isolated worktree to implement ${ISS
 4. Resolve the base branch: ${BASE_BRANCH
   ? `use \`${BASE_BRANCH}\` — it was resolved and confirmed by the caller.`
   : 'determine the repository\'s default branch from `gh repo view --json defaultBranchRef`. Do NOT use the currently checked-out branch.'} Return it as baseBranch. Create from the REMOTE ref \`origin/<baseBranch>\`, never the local ref — a local branch may hold unpushed commits, which would pull unrelated work into the PR diff and give reviewers the wrong diff to review.
-5. Pick a branch name like issue-${ISSUE_NUMBER}-<slug>. If it already exists from an aborted run, delete it first (\`git branch -D\`; if a stale worktree still holds it, \`git worktree list\` then \`git worktree remove --force\` before deleting).
+5. Pick a branch name like issue-${ISSUE_NUMBER}-<slug>. Recheck local/remote branches and worktrees immediately before creation. If the name exists or new evidence of related work appears, STOP and return a concise detail; create nothing. Never assume an existing branch came from an aborted run, and never delete or overwrite it.
 6. Create the worktree in a fresh temp directory OUTSIDE the repository tree: \`git worktree add <temp dir> -b <branch> origin/<baseBranch>\`. Return its absolute path as worktreePath, the branch as branch, and \`git rev-parse HEAD\` run inside it as headSha.
 7. Prove it: return every absolute path listed by \`git worktree list --porcelain\` in worktreePaths, \`git rev-parse --abbrev-ref HEAD\` run inside the new worktree as worktreeBranch, and the checkout's \`git rev-parse HEAD\` re-read afterwards as repoHeadAfter.
 
@@ -306,7 +339,7 @@ if (DIRTY_PATHS.length && !ALLOW_DIRTY_TREE) {
 }
 
 const { branch, headSha: baseSha, worktreePath: WORKTREE_PATH } = branchResult
-if (!WORKTREE_PATH) throw new Error('setup:worktree returned no worktree path — refusing to fall back to the user\'s checkout')
+if (!WORKTREE_PATH) throw new Error(`setup:worktree returned no worktree path — refusing to fall back to the user's checkout${branchResult.detail ? `: ${branchResult.detail}` : ''}`)
 // baseSha anchors every parallel chain (`git worktree add -b <chain> ${baseSha}`) and the
 // integration cherry-pick ranges, so an absent one would silently corrupt those commands.
 if (!branch || !baseSha) throw new Error(`setup:worktree returned an incomplete result (branch=${JSON.stringify(branch)}, headSha=${JSON.stringify(baseSha)}) — cannot anchor milestone chains`)
@@ -344,7 +377,11 @@ if (DIRTY_PATHS.length) {
 }
 
 phase('Plan')
-const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Inspect the repository and record an explicit plan to implement it, per the supervised-forge skill.
+const plan = await agent(`Fetch issue #${ISSUE_NUMBER} from this repository yourself; it is already pinned to the title "${resolvedIssue.title}" — if gh reports a different number or title, stop and report the mismatch instead of proceeding or substituting another issue. Verify its current discussion and acceptance criteria, then inspect the current code and tests and record an explicit plan for only the remaining implementation, per the supervised-forge skill. Do not reimplement behavior already present.
+
+Discovery found no related branch or PR and summarized the base state as: ${discovery.summary}
+Existing behavior observed: ${discovery.existingBehavior.join('; ') || 'none identified'}
+Remaining work observed: ${discovery.remainingWork.join('; ') || 'the full issue scope'}
 
 First name the invariants the change introduces or touches — the properties that must hold regardless of ordering, interleaving, or failure — one sentence each, with the single mechanism that owns each one across every file it spans. Return them as invariants. Then slice cohesive, preferably vertical milestones that follow from those invariants, and set ownsInvariants on each milestone to the invariant statements it owns. Exactly one milestone owns any given invariant: state ownership is not file ownership, and an invariant divided across milestones by directory or layer produces duplicate mechanisms guarding one piece of state, none of them aware of the others. If you cannot name an owner for an invariant, or two milestones would share one, fix the slicing before returning the plan. For each milestone, decide needsReviewGate: true for any cohesive user-visible slice or change to behavior, an API, schema, IPC boundary, persistence format, lifecycle, concurrency, process, or security-relevant contract; false only for purely mechanical, non-behavior-bearing changes (docs, formatting, generated artifacts, trivial config) where a review gate is unnecessary. Also decide independent: true only when implementing the milestone will not touch any file, concern, or invariant that any other milestone touches — independent milestones are implemented in parallel from the same base and then merged, so vertical milestones that build on one another are never independent, and two milestones that touch the same invariant are never independent even when their files are disjoint (parallel workers cannot see each other's work, so each would build its own enforcement mechanism). When in doubt use independent=false. Do not post the plan to the issue. Return the invariant list and the milestone list only — do not implement anything yet.
 
@@ -404,7 +441,7 @@ ${impl.validationOutput}`,
 // commits are cherry-picked onto the branch by the integration agent afterwards.
 async function runParallelMilestone(tag, milestone, total) {
   const chainBranch = `sf/issue-${ISSUE_NUMBER}/${tag}`
-  const impl = await agent(`Implement milestone ${tag}/${total}: "${milestone.title}" for issue #${ISSUE_NUMBER}. Other milestones are being implemented in parallel, so do not touch branch ${branch} or this run's worktree at ${WORKTREE_PATH}: run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if that fails because a stale worktree still has it checked out, find it with \`git worktree list\`, \`git worktree remove --force\` it, then delete the branch). If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
+  const impl = await agent(`Implement milestone ${tag}/${total}: "${milestone.title}" for issue #${ISSUE_NUMBER}. Other milestones are being implemented in parallel, so do not touch branch ${branch} or this run's worktree at ${WORKTREE_PATH}. First verify that ${chainBranch} does not already exist locally or remotely and is not held by a worktree. If it exists, STOP and report the collision; never assume it is stale, force-remove its worktree, delete it, or overwrite it. Otherwise run \`git worktree add <fresh temp dir> -b ${chainBranch} ${baseSha}\` and do all work inside that worktree. If a git command fails with a lock (index.lock) error, another parallel agent is mid-operation — wait a moment and retry.
 
 ${REPO_CONTEXT}
 
@@ -425,7 +462,7 @@ Milestone description: ${milestone.description}${ownedInvariantContext(milestone
 
 Raw validation output from the implementer:
 ${impl.validationOutput}`,
-      `Resolve these independent-reviewer findings for milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch}. Other milestones are being implemented in parallel, so do not touch this run's worktree at ${WORKTREE_PATH}: run \`git worktree add <fresh temp dir> ${chainBranch}\` (if that fails because ${chainBranch} is checked out in a stale worktree from an earlier failed attempt, \`git worktree list\` and \`git worktree remove --force\` the stale one first; on a git lock error, another parallel agent is mid-operation — wait a moment and retry), do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing.`,
+      `Resolve these independent-reviewer findings for milestone ${tag} ("${milestone.title}") on temp branch ${chainBranch}. Other milestones are being implemented in parallel, so do not touch this run's worktree at ${WORKTREE_PATH}. Check \`git worktree list\` first; if any worktree already holds ${chainBranch}, STOP and report its path instead of assuming it is stale or force-removing it. Otherwise run \`git worktree add <fresh temp dir> ${chainBranch}\`, do all work inside that worktree, and run \`git worktree remove --force <that dir>\` after committing. On a git lock error, another parallel agent is mid-operation — wait a moment and retry.`,
     )
     log(`${tag}: review gate ${gate.openFindings.length ? `left ${gate.openFindings.length} open finding(s)` : 'clean'} after ${gate.fixRounds} fix round(s)`)
   } else {

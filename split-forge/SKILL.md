@@ -49,9 +49,18 @@ way past a string comparison.
 
 ## Procedure
 
-### 1. Read the task and name the invariants first
+### 1. Explore the task's current state, then name the invariants
 
-Before drawing any boundary, name the invariants the change introduces or touches — one sentence
+If the task comes from an issue, first verify the issue state, discussion, linked issues and PRs, and
+what work already exists in the codebase, local/remote branches, worktrees, commits, and
+open/closed/draft PRs. A small read-only scout fleet is advised when the history or repository state is nontrivial, sized
+proportionally to the task. Give each scout one bounded concern (issue context, codebase status, or
+branch/PR state) and require a concise, evidence-backed summary with only key state, exact references,
+and remaining-work implications—not raw logs or full transcripts. Use fewer scouts for narrow work
+and none when one quick pass is enough. Synthesize the summaries before decomposing; never assume the
+issue is untouched or start duplicate chunks for work already done.
+
+Before drawing any boundary, name the invariants the remaining change introduces or touches — one sentence
 each. Slices follow from invariants, never the reverse. **One owner per invariant, end to end**: an
 invariant split across two chunks produces two mechanisms guarding one piece of state, neither aware
 of the other. If two candidate chunks both need to own an invariant, they are one chunk.

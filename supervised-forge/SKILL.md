@@ -19,11 +19,13 @@ After spawning or messaging a reviewer, use the `subagent_wait` tool to await it
 
 ## Plan before editing
 
-When assigned an issue, create a dedicated branch before editing. After the required validation and review gates pass, open a PR for the completed work.
+When assigned an issue, first verify its current state and what work already exists. Read the issue, discussion, linked issues and PRs; inspect relevant code and tests; and search local/remote branches, worktrees, commits, and PRs for prior or active implementation. A small read-only scout fleet is advised when the history or repository state is nontrivial, with size proportional to the task—use fewer scouts for a narrow issue and none when one quick pass is enough. Give each scout one bounded concern (issue context, codebase status, or branch/PR state) and require a concise, evidence-backed summary containing only key state, exact references, and remaining-work implications, not raw logs or full transcripts. Synthesize the summaries before planning. Never assume an issue is untouched, and never create, delete, or replace a branch until discovered work is understood.
 
-1. Read repository instructions and inspect enough context to define task boundaries.
+Only create a dedicated branch when the evidence shows a new branch is appropriate; otherwise continue or review the existing work as directed. After the required validation and review gates pass, open or update the single relevant PR without duplicating one that already exists.
+
+1. Read repository instructions and complete the issue-context and existing-work check above to define the actual remaining task boundaries.
 2. Name the invariants (see below). Do this before slicing milestones — the slices follow from the invariants, not the other way around.
-3. Create an explicit plan of cohesive, preferably vertical milestones. Use the plan tool when available.
+3. Create an explicit plan of cohesive, preferably vertical milestones for only the remaining work. Use the plan tool when available.
 4. Put a review gate in every behavior-bearing milestone.
 5. Record the plan, including the invariant list and each invariant's owner, before editing any implementation or test file.
 6. After the plan is recorded, immediately spawn the correctness reviewer with no inherited conversation history.

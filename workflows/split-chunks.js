@@ -359,7 +359,7 @@ Every finding's description must also carry a realistic failure scenario: the co
 
 ${REPO_CONTEXT}
 
-Other chunks are being implemented in parallel, so do not touch ${REPO_PATH}'s working tree: run \`git worktree add <fresh temp dir> ${chainBranch}\` (if that fails because a stale worktree holds the branch, \`git worktree list\` then \`git worktree remove --force\` it first; on an index.lock error, wait a moment and retry), work inside that worktree, commit with a message starting "fix(${tag}):", then \`git worktree remove --force <that dir>\`.
+Other chunks are being implemented in parallel, so do not touch ${REPO_PATH}'s working tree. Check \`git worktree list\` first; if any worktree already holds ${chainBranch}, STOP and report its path instead of assuming it is stale or force-removing it. Otherwise run \`git worktree add <fresh temp dir> ${chainBranch}\`, work inside that worktree, commit with a message starting "fix(${tag}):", then \`git worktree remove --force <that dir>\`. On an index.lock error, wait a moment and retry.
 
 Findings:
 ${openFindings.map(f => `- [${f.severity}] ${f.file ? `${f.file}: ` : ''}${f.description}`).join('\n')}
@@ -408,7 +408,7 @@ ${TASK_CONTEXT || '(none supplied)'}
 - Your whole diff must stay within ${chunk.maxFiles} files.
 A violation fails this chunk. If you cannot deliver within the contract, deliver what fits and return the rest as an escalation — that outcome is correct and expected, and is far better than a chunk that quietly grew.
 
-Other chunks are being implemented in parallel from the same base, so do not touch ${REPO_PATH}'s working tree or its checked-out branch. Run \`git worktree add <fresh temp dir OUTSIDE the repo> -b ${chainBranch} ${BASE_SHA}\` and do all work inside that worktree. If ${chainBranch} is left over from an aborted run, delete it first (\`git branch -D ${chainBranch}\`; if a stale worktree holds it, \`git worktree list\`, \`git worktree remove --force\` it, then delete). On an index.lock error another parallel agent is mid-operation — wait a moment and retry.
+Other chunks are being implemented in parallel from the same base, so do not touch ${REPO_PATH}'s working tree or its checked-out branch. First verify that ${chainBranch} does not already exist locally or remotely and is not held by a worktree. If it exists, STOP and report the collision; never assume it is stale, force-remove its worktree, delete it, or overwrite it. Otherwise run \`git worktree add <fresh temp dir OUTSIDE the repo> -b ${chainBranch} ${BASE_SHA}\` and do all work inside that worktree. On an index.lock error another parallel agent is mid-operation — wait a moment and retry.
 
 ${sharedRules}
 

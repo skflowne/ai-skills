@@ -27,9 +27,15 @@ Consume a review round as soon as its assembled `drift-review-duo` agent begins 
 
 Launch every workflow agent in the background, then use `paseo wait <agent-id> --json` as the dedicated completion primitive. After every `paseo send` that starts more work, wait the same way. Do not substitute a foreground `paseo run`, `paseo logs --follow`, `watch`, polling loops, sleeps, shell `timeout`, or a generic command invocation with an oversized tool timeout. Do not pass `--timeout` to `paseo wait`; let Paseo report the idle transition, then immediately inspect the agent and recent logs. For parallel fixers, call `paseo wait` once per ID; agents that already finished return immediately.
 
-## 1. Preflight
+## 1. Context discovery and preflight
 
-Require an issue number. Resolve the repository, authenticated GitHub identity, default or explicitly stacked base, clean-tree state, active Paseo agents, existing worktrees, repository instructions, and current `paseo run --help`. Inspect facts rather than asking for information that can be retrieved.
+Require an issue number and mechanically establish the repository identity and authenticated GitHub access needed to resolve it. Then make the first substantive investigation a read-only discovery pass. Verify the issue's current state, body, acceptance criteria, discussion, linked issues, and linked PRs. Inspect the relevant code and tests plus local/remote branches, worktrees, commits, and open/closed/draft PRs for prior or active implementation. Do not assume an open issue is untouched, a closed issue needs no follow-up, or a matching branch is stale.
+
+A small fleet of read-only scouts is advised when the issue history or repository state is nontrivial: one assesses issue and discussion context, one gathers current codebase and test status, and one inventories branches, commits, worktrees, and PRs. Keep the fleet proportional—use fewer scouts for a narrow issue and none when one quick pass is enough. Give each scout a bounded concern and require a concise, evidence-backed summary containing only key state, exact references, and remaining-work implications; do not carry raw logs or full transcripts into implementation context. Synthesize the summaries before creating a workspace or assigning a writer. Record what is complete, partial, active, obsolete, or still missing against the current acceptance criteria.
+
+Choose the next action from that evidence. Resume or review relevant existing work when appropriate; create a new implementation branch only when no suitable work exists. Never delete, overwrite, or duplicate discovered work. If an existing PR already implements the issue, adopt that PR as the workflow target instead of opening another one, and reconcile any live writer before assigning an agent.
+
+After discovery, complete preflight by resolving the default or explicitly stacked base, clean-tree state, active Paseo agents, existing worktrees, repository instructions, and current `paseo run --help`. Inspect facts rather than asking for information that can be retrieved.
 
 Follow Paseo's ambiguous-state recovery before reusing a workspace, replacing an agent, or retrying a failed command. A Paseo status label alone does not prove that a provider or child process stopped. Never queue a follow-up and launch a replacement for the same work.
 
@@ -44,13 +50,14 @@ Use one retirement protocol everywhere this workflow says to retire an agent or 
 
 ## 2. Initial supervised implementation
 
-Create one Paseo worktree and issue branch from the selected committed base. Launch one agent whose prompt begins with `/skill:supervised-forge` and explicitly requires it to:
+Create or adopt exactly one Paseo worktree and issue branch from the discovered state and selected committed base. Launch one agent whose prompt begins with `/skill:supervised-forge` and explicitly requires it to:
 
-- implement the complete issue without expanding beyond its acceptance criteria;
+- implement only the verified remaining issue work without expanding beyond its acceptance criteria;
 - brief the persistent reviewer with the standing scope-supervision contract above and include scope-control outcomes in the handoff;
 - use the Paseo-created worktree without creating a nested worktree;
 - resolve repository-defined decisions as required by repository instructions;
-- validate, push the issue branch, and open its single PR; and
+- receive the synthesized discovery summary and exact remaining-work boundary;
+- validate, push the issue branch, and open or update its single discovered PR without creating a duplicate; and
 - return a compact handoff containing the issue, PR URL and number, base and head SHAs, commits, changed invariants, validation, decisions, residual risks, and artifact paths.
 
 Wait with `paseo wait <agent-id> --json`, inspect the agent and recent logs, and verify the PR, branch, validation, and handoff. Then definitively retire the implementation agent with the retirement protocol, including workspace services rather than only the provider process. Before assigning another writer to its workspace, prove that no provider, child, auxiliary server, test server, or isolated database remains, the tree is clean, and local and remote issue-branch tips match.

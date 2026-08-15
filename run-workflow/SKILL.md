@@ -15,7 +15,7 @@ This skill deliberately does **not** carry `disable-model-invocation`. It once d
 backwards: the workflow entry points themselves stay model-invocable, so the flag gated the
 preflighted path while leaving the unpreflighted one open — it prevented the safe launch, not the
 unsafe one. What actually guards these runs is the two human gates in the procedure below: the
-dirty-tree confirmation (step 4) and the ambiguous-base confirmation (step 5). Those are real
+dirty-tree confirmation (step 3) and the ambiguous-base confirmation (step 4). Those are real
 approval points. Do not remove them, and do not answer them on the user's behalf.
 
 Do not call `Workflow({name: 'skills:...'})` directly for the entry points below. Everything the run
@@ -44,7 +44,7 @@ runnable on their own. All support `baseBranch`/`allowDirtyTree` and worktree is
 chunk contracts with scope allowlists and file budgets, plus the trunk-owned path denylist — which
 cannot be parsed from a slash-command invocation and has to be authored against the actual repo.
 [split-forge](../split-forge/SKILL.md) owns that entry point: it names the invariants, sorts trunk
-work from chunk work, runs the same preflight this skill does (steps 2–5 below), launches the run,
+work from chunk work, runs the same preflight this skill does (steps 1–4 below), launches the run,
 and then authors the cross-cutting commit itself. Route "split this up", "implement it in parallel
 chunks", or `$split-forge` there. Never call `Workflow({name: 'skills:split-chunks'})` without going
 through it — an unpreflighted run branches from whatever is checked out, and a hand-written args
@@ -65,34 +65,64 @@ here when the PR may be external and say so before launching — point the user 
 
 ## Procedure
 
-Run these in order. Steps 4 and 5 are ordered deliberately: a dirty tree is a reason to stop
-entirely, so settle it before spending the user's attention on a branch question.
+Run these in order. The context check comes before branch or implementation planning: never infer
+from an issue number that nobody has started or completed the work. Steps 3 and 4 are ordered
+deliberately: a dirty tree is a reason to stop entirely, so settle it before spending the user's
+attention on a branch question.
 
-### 1. Parse the invocation into a validated args object
+### 1. Establish the target and explore its current context
 
-Require a mode and a number. Ask for whichever is missing rather than guessing.
+Require a mode and a number. Ask for whichever is missing rather than guessing. Accept `5`, `#5`,
+`issue 5`, `pr 5`, or a GitHub issue/PR URL, normalize it to an **integer**, and hard-validate that it
+is positive.
 
-Accept `5`, `#5`, `issue 5`, `pr 5`, or a GitHub issue/PR URL, and normalize all of them to an
-**integer**. Then hard-validate: the number must be a positive integer before you go further.
+Resolve `repoPath` (default: the current working directory; verify it with `git -C <path> rev-parse
+--git-dir`) and `repoSlug` (`gh repo view --json nameWithOwner`). Check `gh auth status`; if
+authentication is unavailable, stop before launching.
+
+For an issue mode, make the first substantive action a read-only context pass. Verify rather than
+assume:
+
+- the issue's current state, body, acceptance criteria, discussion, linked issues, and linked PRs;
+- open, closed, and draft PRs that reference or implement the issue;
+- local and remote branches, worktrees, and commits that appear related; and
+- the relevant code and tests as they exist now, including whether some or all requested behavior is
+  already present.
+
+A small fleet of read-only scouts is advised when the issue has nontrivial history or repository
+state: one for issue/discussion context, one for codebase status, and one for branches, commits,
+worktrees, and PRs. Keep the fleet proportional—use fewer scouts for a narrow issue and do not fan
+out when one quick pass is enough. Give each scout a bounded concern and require a concise,
+evidence-backed summary containing only key state, exact references, and remaining-work implications;
+do not carry raw logs or full transcripts into the implementation context. Synthesize those summaries
+before deciding what action remains. Do not create a branch, delete a branch, or launch an
+implementation workflow during discovery.
+
+If the issue is already completed, has an active implementation PR, or has partial work on a branch,
+report that state and choose the next action from evidence. Reuse or review existing work when that
+is the requested outcome; do not silently start a duplicate implementation. If continuing existing
+work versus starting over is a genuine direction choice, present the verified options and ask once.
+Do not launch this workflow until the discovered state is reconciled with its new-worktree behavior.
+
+For `review`, perform the equivalent PR context check: verify the PR state, head/base, linked issue,
+and current review or fix activity rather than assuming it is ready for another writer.
+
+Pass both `repoPath` and `repoSlug` in every args object. Without them, each agent re-resolves the
+repo from cwd's default remote, and implementing in one checkout while reviewing another is the
+worst possible split.
 
 `args` must be an **object**, never a string. `Workflow({args: "5"})` parses to the number `5`, so
 `ARGS.issueNumber` is `undefined` and `#undefined` gets interpolated into prompts — where an agent
 improvises instead of failing. Always pass `args: {issueNumber: 5, ...}`.
 
-### 2. Resolve the repo explicitly
+### 2. Check whether the workflow can proceed
 
-Determine `repoPath` (default: the current working directory; verify with
-`git -C <path> rev-parse --git-dir` that it is a git worktree) and `repoSlug` (`gh repo view --json
-nameWithOwner`). Pass both in every args object. Without them, each agent re-resolves the repo from
-cwd's default remote, and implementing in one checkout while reviewing another is the worst possible
-split.
+Use the discovery result to verify that this run will not overwrite, duplicate, or ignore existing
+work. Stop and explain when the issue state makes implementation inappropriate or when relevant work
+cannot be safely reconciled. This is a state check, not an assumption that every open issue needs a
+fresh branch.
 
-### 3. Check `gh auth status`
-
-If authentication is unavailable, stop and explain. Do not launch — it will fail deep inside a run
-after work has already been done.
-
-### 4. Preflight the working tree — ask, never stash
+### 3. Preflight the working tree — ask, never stash
 
 Run `git -C <repoPath> status --porcelain`. If clean, continue.
 
@@ -107,7 +137,7 @@ pass `allowDirtyTree: true`; otherwise stop and let them commit or stash themsel
 in this conversation. The workflows hard-refuse a dirty tree without it, which is what keeps the
 guarantee when a run is started by cron, by another agent, or on resume, where nobody was asked.
 
-### 5. Determine the target branch — confirm only when ambiguous
+### 4. Determine the target branch — confirm only when ambiguous
 
 **Skip this entire step for `review`.** A review works from a PR number alone: the
 PR determines its own head branch, base ref, and head repo. There is nothing to resolve and nothing
@@ -136,7 +166,7 @@ Pass the outcome as an explicit `baseBranch`. The workflow creates its worktree 
 `origin/<baseBranch>` — never a local ref — which is what keeps unpushed local commits out of the
 PR's diff.
 
-### 6. Launch and report
+### 5. Launch and report
 
 Call `Workflow({name: <workflow>, args: <object>})`. Do not pass a `timeout`.
 

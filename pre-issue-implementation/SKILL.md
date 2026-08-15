@@ -10,14 +10,16 @@ Plan an existing GitHub issue before changing code. The output of this skill is 
 ## 1. Establish the target
 
 - Require an issue number or URL. If none is provided or inferable from the current branch, stop and ask for it.
-- Read the issue, linked issues or pull requests, repository instructions, and relevant discussion.
-- Inspect the current code and tests far enough to identify the actual symbols, files, call paths, conventions, and constraints involved.
-- Keep planning read-only: do not create a branch or edit product code.
+- Make the first substantive action a read-only context pass. Verify the issue's current state; read its body, discussion, linked issues, and linked pull requests; and identify any prior decisions or acceptance-criteria changes.
+- Inspect open, closed, and draft PRs plus local/remote branches, worktrees, and commits that may contain related work. Never assume planning starts from an untouched issue.
+- Inspect the current code and tests far enough to identify the actual symbols, files, call paths, conventions, constraints, and requested behavior that already exist.
+- A small read-only scout fleet is advised when the history or repository state is nontrivial, with size proportional to the task. Give each scout one bounded concern (issue context, codebase status, or branch/PR state) and require a concise, evidence-backed summary containing only key state, exact references, and remaining-work implications—not raw logs or full transcripts. Use fewer scouts for a narrow issue and none when one quick pass is enough. Synthesize the summaries before drafting the plan.
+- Keep planning read-only: do not create, delete, or switch branches and do not edit product code.
 - Separate verified facts from assumptions. Resolve cheap factual questions through repository or documentation research. Ask the user only about genuine product or architecture decisions.
 
 ## 2. Draft a concrete plan
 
-Write an implementation plan another agent can execute without repeating the investigation. It must include:
+Write a plan for the verified remaining work, not the issue as originally imagined. Another agent should be able to execute it without repeating the investigation. It must include:
 
 1. **Goal and current behavior** — the intended outcome and the relevant behavior that exists today.
 2. **Implementation approach** — the chosen design and why it fits existing repository patterns.
