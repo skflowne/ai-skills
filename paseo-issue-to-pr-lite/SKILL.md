@@ -21,7 +21,7 @@ The user preauthorizes implementation, review, fix, and publication decisions. E
 
 When `supervised-forge` or `supervised-chunk` reports that required work exceeds the canonical boundary, launch one judge to identify the correct solution with the smallest justified expansion. Report the expansion and rationale immediately through Paseo notification; do not let the active writer absorb it silently.
 
-Check activity every 15 minutes for stalls, loops, scope growth, or drift and send a concise progress notification. If work clearly drifts from the issue, stop the workflow and notify the human.
+After each `paseo wait` completion and every runtime progress or control event, inspect for stalls, loops, scope growth, or drift and send a concise progress notification when state materially changes. Do not add polling, sleeps, or timeouts. If work clearly drifts from the issue, stop the workflow and notify the human.
 
 ## Review and recovery deltas
 
