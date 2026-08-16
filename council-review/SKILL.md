@@ -9,6 +9,8 @@ Run a fixed panel of five expert reviewers in parallel, then synthesize their re
 
 ## Setup
 
+Read and apply the canonical review contract in [pr-review](../pr-review/SKILL.md). Every panelist must invoke it independently; this skill adds specialist focus but does not replace or weaken its scope, isolation, fix-verification, or test-usefulness rules.
+
 1. Ensure environment is ready for review.
 2. Fetch details about the PR you were asked to review.
 3. Fetch the corresponding issue(s).
@@ -18,7 +20,7 @@ Run a fixed panel of five expert reviewers in parallel, then synthesize their re
 Spawn **five** sub-agents in parallel — one per expert. Each reviewer uses the same base prompt with a different focus:
 
 ```
-/pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
+/skill:pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a realistic failure scenario, and evidence (for example file/line references, a test result, or authoritative documentation).
 
@@ -31,12 +33,12 @@ Your focus areas: {focus}
 | Expert | Role | Focus areas |
 |--------|------|-------------|
 | **Correctness** | Correctness & behavior reviewer | Logic bugs, edge cases, incorrect behavior, regressions, whether the implementation matches the issue intent and acceptance criteria |
-| **UI/UX** | UI & UX reviewer | Run the app in a browser and test the relevant flow as a user would. Visually verify each state and interaction, and report behavior that is not ideal, including interaction design, accessibility, visual consistency, loading/error/empty states, copy clarity, and friction points. |
+| **UI/UX** | UI & UX reviewer | Run the required flow in a real browser as a user would. Verify interaction, accessibility, loading/error/empty states, copy, and visual behavior against issue intent and established repository patterns. Report only concrete failures or regressions with realistic user impact; do not convert subjective polish, unspecified alternatives, or behavior that is merely “not ideal” into findings. |
 | **Architecture** | Code architecture reviewer | Module boundaries, abstractions, duplication, coupling, naming, testability, whether patterns match the codebase, maintainability |
 | **Security** | Security reviewer | Auth/authz gaps, input validation, injection risks, secrets exposure, unsafe dependencies, data handling, OWASP-style concerns |
 | **Design soundness** | Root-cause & design-soundness reviewer | Whether the seams are right, not whether the behavior is right. For each defect you see, name the invariant it is really protecting and ask who owns that invariant — one mechanism, or scattered guards and duplicate machines? Is each touched component still coherent at its current size and responsibility count? Run `git log --name-only` over the touched files and report any that recur across consecutive `fix:` commits, plus any abstraction a later commit deleted in favor of inline guards. |
 
-Pass each sub-agent the PR number, issue context, and its row from the table above.
+Pass each sub-agent only the PR number, original issue context, target refs, repository profile, and its row from the table above. Do not pass author rationale, prior reviews, candidate findings, or another panelist's output. Spawn all panelists from fresh context and keep their outputs isolated until synthesis.
 
 For UI/UX reviews, use the browser automation tool available in the host environment, such as `agent-browser`; use the equivalent tool in Codex, Claude Code, or another host when the tool differs. A real browser engine is required, but headless execution is acceptable. Capture screenshots of key states and test the flow as a user would. Do not substitute source inspection for running the flow.
 
@@ -50,6 +52,7 @@ Your job is to analyze all five reports with a critical mindset — do not accep
 - **Audit every failure scenario against the standard in [pr-review](../pr-review/SKILL.md).** Drop any finding whose trigger no real user or caller reaches, or whose impact you cannot state as a concrete real-world consequence — do not rescue it by downgrading it to a nit. Where a reviewer asserted a scenario without checking call sites, types, or validation, check them yourself before keeping it.
 - Note where experts disagree and resolve with code/issue evidence.
 - Preserve each finding's concise description, realistic failure scenario (trigger, mechanism, real-world impact, plausibility), and evidence through deduplication; a finding missing any of these is invalid.
+- Apply the canonical test-usefulness standard to every test finding and to test code introduced by a proposed fix. Green output or a closed comment does not prove that a test prevents a regression or that its implementation is at the correct seam.
 
 ## Root-cause classification
 

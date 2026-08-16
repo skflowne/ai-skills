@@ -329,7 +329,7 @@ Raw validation output from the implementer:
 ${validationOutput}`
 
   for (let round = 0; round <= MAX_FIX_ROUNDS_PER_GATE; round++) {
-    const review = await agent(`Independently review chunk ${tag} ("${chunk.title}") on branch ${chainBranch}. Report findings; do not edit files.
+    const review = await agent(`/skill:pr-review Independently review chunk ${tag} ("${chunk.title}") on branch ${chainBranch}. Report findings; do not edit files. Apply the canonical scope, isolation, fix-verification, failure-scenario, and test-usefulness contract.
 
 ${REPO_CONTEXT}
 
@@ -342,7 +342,7 @@ ${TASK_CONTEXT || '(none supplied)'}
 
 ${context}
 
-Report concrete correctness and regression findings ranked by severity, each with exact file and line references. Also apply a standing duplication-and-deletion lens: code that reimplements an existing shared module or re-inlines an existing constant is a finding, and any deletion, inlining, or bypass of a shared module or accessor is a blocker regardless of whether tests stay green. Verify the claimed red-green observation actually happened rather than taking the summary's word for it. A finding you cannot evidence with a concrete location must be omitted.
+Report concrete correctness and regression findings ranked by severity, each with exact file and line references. For every added or modified test, identify the required user/caller behavior or core invariant, real path, independent oracle, and realistic regression that makes it fail. Reject tautologies and test-only production mechanisms; do not demand replacement tests or harnesses without required behavior and an escaping regression. Also apply a standing duplication-and-deletion lens: code that reimplements an existing shared module or re-inlines an existing constant is a finding, and any deletion, inlining, or bypass of a shared module or accessor is a blocker regardless of whether tests stay green. Verify the claimed red-green observation actually happened rather than taking the summary's word for it. A finding you cannot evidence with a concrete location must be omitted.
 
 Every finding's description must also carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. For duplication and deletion findings the affected party is the next person to change this code: name the realistic edit they will make, what silently breaks when they make it (the second copy keeps the old behavior, the invariant the deleted module owned goes unenforced), and the user-visible defect that ships as a result. Omit any finding whose harm is only "could cause unexpected behavior" or "is not ideal", and any whose trigger the call sites, types, or validation already exclude — omit it rather than reporting it as a nit, since every reported finding costs another fix round.`,
       { label: `${tag}:review${round ? `-r${round}` : ''}`, phase: 'Chunks', schema: FINDINGS_SCHEMA, agentType: 'general-purpose' })
@@ -364,11 +364,13 @@ Other chunks are being implemented in parallel, so do not touch ${REPO_PATH}'s w
 Findings:
 ${openFindings.map(f => `- [${f.severity}] ${f.file ? `${f.file}: ` : ''}${f.description}`).join('\n')}
 
+Treat each finding as a claim to verify, not an accepted design. Implement only valid fixes at the owning seam. Do not add production test hooks, environment branches, public APIs, dependencies, guards, or test infrastructure merely to match a comment. Tests must protect required user/caller behavior or core logic from a realistic regression and use an independent oracle.
+
 Your scope is unchanged and still enforced: you may touch only ${chunk.scopePaths.join(', ')}, and never ${CROSS_CUTTING.join(', ') || '(nothing reserved)'}. If a finding cannot be fixed within that scope, do not fix it — return it as an escalation instead.
 
 ${sharedRules}
 
-Verify each finding against the code before acting; reject invalid ones with concrete evidence rather than changing code to satisfy them. Rerun the relevant validation and return the new commit sha, what you addressed or rejected, the raw rerun output, and any escalations.`,
+Verify each finding against the original requirement and code before acting; reject invalid ones with concrete evidence rather than changing code to satisfy them. Re-review must judge the fix range independently, retract invalid findings, and flag symptom patches, tautological tests, or test-only production mechanisms at the wrong seam. Rerun the relevant validation and return the new commit sha, what you addressed or rejected, the raw rerun output, and any escalations.`,
       { label: `${tag}:fix-r${fixRounds}`, phase: 'Chunks', schema: IMPLEMENT_SCHEMA, agentType: 'general-purpose' })
 
     if (fix === null) {

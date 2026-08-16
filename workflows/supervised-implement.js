@@ -228,7 +228,9 @@ function actionable(findings) {
 // level deep — already spent by issue-to-pr — so the shape is duplicated deliberately; propagate
 // structural changes to the twin by hand.
 async function requestReview(label, subject, context) {
-  const review = await agent(`Act as an independent correctness reviewer for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this code and have no prior context beyond this message. Inspect the actual commits/diff on the branch yourself -- do not trust the implementer's own description of what changed. Report concrete correctness, regression, and behavior findings with evidence and exact file references. Return no findings if it's clean.
+  const review = await agent(`/skill:pr-review Review ${subject} as an independent correctness reviewer under the supervised-forge review gate. You did not write this code and have no prior context beyond this message. Inspect the actual commits/diff on the branch yourself -- do not trust the implementer's own description of what changed. Apply the canonical scope, isolation, fix-verification, and test-usefulness standards. Report concrete correctness, regression, and behavior findings with evidence and exact file references. Return no findings if it's clean.
+
+For every added or modified test, identify the required user/caller behavior or core invariant, real path, independent oracle, and realistic regression that makes it fail. Reject tautologies and test-only production mechanisms; do not demand replacement tests or harnesses without a required behavior and escaping regression.
 
 Every finding's description must carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. If the finding is not user-facing, name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. Return no finding whose harm is only "could cause unexpected behavior" or "is not ideal", and none whose trigger the call sites, types, or validation already exclude — drop it rather than reporting it as a nit, since every reported finding costs another fix round.
 
@@ -255,12 +257,14 @@ ${REPO_CONTEXT}
 Findings to resolve:
 ${JSON.stringify(findings)}
 
+Treat each finding as a claim to verify, not an accepted design. Implement only valid in-scope fixes at the owning seam. Do not add production test hooks, environment branches, public APIs, dependencies, guards, or test infrastructure merely to match a comment. Tests must protect required user/caller behavior or core logic from a realistic regression and use an independent oracle.
+
 Rerun the relevant validation and commit your fixes.`,
       { label: `${label}:fix:r${round}`, agentType: 'general-purpose' })
     if (fix === null) throw new Error(`${label}: fix round ${round} failed`)
     findings = actionable(await requestReview(`${label}:r${round}`, subject, `${context}
 
-Fix round ${round} has since committed fixes for earlier findings on top — review the current state including those fix-up commits, not just any originally-cited commit.`))
+Fix round ${round} has since committed changes on top. Review the fix range independently against the pre-fix state and original requirement, not against the wording or intended implementation of an earlier finding. Retract invalid findings and flag symptom patches, tautological tests, or test-only production mechanisms at the wrong seam.`))
   }
   if (findings.length) {
     log(`${subject}: ${findings.length} finding(s) still open after ${round} fix round(s) — proceeding with residual risk`)

@@ -1,33 +1,77 @@
 ---
 name: pr-review
-description: "Review a given PR. Use only when the user explicitly names and requests this skill."
+description: "Canonical code-review contract and PR review skill. Use only when the user explicitly names and requests this skill."
 ---
 
-# Goal
-Review the specified PR (if not specified, stop and ask)
+# PR Review — canonical contract
 
-# Execution
-- Fetch the corresponding issue so you understand the goal and intent
-- Review the code and hunt for issues related to your expertise and area of focus
-- For every finding, provide a concise description, a **realistic failure scenario** meeting the standard below, and evidence (for example file/line references, a test result, or authoritative documentation). Do not report findings without all three.
-- When posting findings to GitHub, follow [github-pr-review](../github-pr-review/SKILL.md): post one consolidated review body instead of inline comments, and organize the resolution plan into chunks sized for one agent. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`).
+This is the canonical contract for every review skill in this repository. Skills may add orchestration, specialist lenses, classifications, or publishing mechanics, but they must require every reviewer and fix verifier to apply this contract and must not weaken it.
 
-# Failure scenario standard
+When this skill is invoked directly, review the specified PR. If no PR is specified, stop and ask for it. Wrapper skills may apply this contract to an explicit branch, commit range, diff, or file target.
 
-This is the bar for every review skill in this repo. A finding without a realistic failure scenario is not a finding.
+## Establish the review boundary
 
-Write each scenario in three parts:
+1. Fetch the target, linked issue and discussion, repository instructions, base and head refs, and relevant code and tests.
+2. Treat the original task, acceptance criteria, and repository policy as the outer scope boundary.
+3. Review whether the change is a complete and correct implementation inside that boundary. Do not invent adjacent requirements, product behavior, compatibility work, abstractions, dependencies, cleanup, or test infrastructure.
+4. A reviewer may require credible evidence for behavior the task actually requires. That does not authorize adding production APIs, environment branches, lifecycle hooks, dependencies, or other application code solely to make the review easier.
+5. If a concern cannot be verified, report the verification limitation. Uncertainty is not a finding and must not be converted into speculative work.
 
-1. **Trigger** — the concrete conditions that produce it: who is doing what, with which inputs, in which state. Name a path a real user or caller actually takes, not "if someone passes null" when nothing passes null.
-2. **Mechanism** — what the code then does wrong, tied to the cited `path:line`.
-3. **Real-world impact** — what the person on the other end actually experiences: data silently lost or wrong, a flow they cannot complete, a wrong number they act on, another user's data exposed, a double charge, a hang. Name a consequence someone would notice, report, or be harmed by.
+## Reviewer isolation
 
-Then state **plausibility**: how a user reaches that state in normal use, and how often. "Every user on first load" and "only if the system clock moves backwards mid-request" are different findings and deserve different severities — say which one you have.
+Each reviewer must investigate independently.
 
-Reject and drop, do not hedge and report anyway:
+- Start from fresh context containing only the target refs, original intent and acceptance criteria, repository profile, and the reviewer's bounded focus.
+- Do not give a reviewer the author's rationale, intended fix, prior reviewer reports, candidate findings, expected verdict, or another reviewer's analysis.
+- Parallel reviewers must not see one another's output before they finish. Only the synthesizer receives completed reports.
+- Raw validation output may be supplied as evidence, but green output is not proof that assertions are useful or that the implementation is at the correct seam.
+- A synthesizer adjudicates completed reports; it does not echo consensus or preserve a finding merely because another reviewer already stated it.
 
-- Scenarios that reduce to "this could cause unexpected behavior," "this is not ideal," "this may break in the future," or "a caller might misuse this."
-- Triggers no real user or caller reaches, or that require inputs the type system, validation, or call sites already exclude — check the call sites before claiming it.
-- Impact you can only describe with "could potentially." If you cannot state what breaks for someone, you have not verified the finding.
+A fix re-review is not finding-closure bookkeeping. Inspect the fix diff against the pre-fix revision and the original requirement. Re-evaluate whether the finding was valid, whether the implementation is correct, whether the invariant now has the right owner, whether the change stayed in scope, and whether the tests prove behavior rather than the chosen implementation. Retract an invalid finding. Reclassify a symptom patch as wrong-seam work. A finding is resolved only by a correct implementation, not by code that satisfies the wording of the comment.
 
-For findings that are not user-facing (quality, conventions, tests, docs), the same three parts apply with **the next person to change this code** as the affected party: name the realistic edit someone will make, what breaks or is silently missed when they make it, and the user-visible defect that reaches production as a result.
+## Test usefulness standard
+
+Review every added or modified test for regression-prevention value, not for the presence of test files or passing output. A useful test must satisfy all of these:
+
+1. **Required behavior:** It protects behavior, a user/caller path, or core logic that the task or repository actually requires.
+2. **Real path:** It exercises the real interface at the lowest level that still proves the invariant. Mocks and fixtures must not bypass the behavior being claimed.
+3. **Regression sensitivity:** Name a realistic implementation regression that breaks the protected behavior and would make this test fail for the relevant reason. When practical, prove sensitivity with RED evidence or a focused mutation. If no plausible behavioral regression makes the test fail, the test is not useful.
+4. **Independent oracle:** Expected values must be independent of the implementation value under test. A fixture populated from an imported constant and then compared with that same constant is tautological. Recomputing the result with the production algorithm is equally invalid.
+5. **Observable assertion:** Assertions verify externally observable behavior or the owning core-logic contract, not private structure, incidental calls, snapshots without semantic assertions, or the test's own setup.
+6. **Production purity:** Test support stays in test harnesses. Reject test-only branches, environment flags, magic log tokens, forced lifecycle changes, DOM probes, or exported internals added to production code merely so a test can inspect or terminate the application. An existing explicit test seam may be reused only when it is already part of the repository design and does not alter the behavior under test.
+7. **Proportionality:** The test adds no framework, broad harness, public API, compatibility layer, or unrelated coverage beyond what is needed to protect the required behavior.
+
+Do not ask for tests merely because code, types, constants, configuration, or files were added. Static type declarations are normally validated by typechecking; constants do not need runtime tests unless they participate in a real runtime contract such as parsing, serialization, migration, or externally visible behavior. Do not create a fake runtime assertion for compile-time structure.
+
+A missing-test finding is valid only when the reviewer identifies the required behavior or core invariant, the realistic regression that would escape the current suite, the appropriate test level, and the user/caller impact. “Add tests,” “increase coverage,” and “this is untested” are not findings.
+
+## Finding evidence standard
+
+For every finding, provide:
+
+- a concise description;
+- exact evidence such as `file:line`, a focused test result, a verified call path, repository history, or authoritative documentation; and
+- a realistic failure scenario meeting the standard below.
+
+Try to disprove the concern by checking call sites, types, validation, tests, and repository conventions. Do not report style preferences, hypothetical misuse, or behavior outside the review boundary.
+
+### Failure scenario standard
+
+A finding without a realistic failure scenario is not a finding. Write each scenario in four parts:
+
+1. **Trigger** — concrete conditions a real user or caller reaches, with inputs and state.
+2. **Mechanism** — what the code does wrong at the cited location.
+3. **Real-world impact** — what someone loses, sees wrong, cannot complete, or is exposed to.
+4. **Plausibility** — how the state occurs in normal use and how often.
+
+Reject and drop scenarios that reduce to “could cause unexpected behavior,” “is not ideal,” “may break in the future,” or “a caller might misuse this.” Reject triggers excluded by call sites, types, or validation and impacts that cannot be stated concretely.
+
+For non-user-facing findings, the affected party is the next developer changing the code: name the realistic edit, what silently breaks or is missed, and the user-visible defect that ships. Test findings additionally use the test usefulness standard: a tautology or production test hook is evidenced by showing why the test cannot detect the claimed regression or why the proof lives at the wrong seam; do not invent extra product behavior to justify removing it.
+
+## Execution
+
+- Inspect the implementation and tests directly; do not infer quality from summaries or green commands.
+- Run focused validation when it can confirm or reject a material concern.
+- Separate a valid requirement from a proposed implementation. Do not prescribe production machinery when an external test harness, existing seam, typecheck, or no additional test is the proportional answer.
+- Report verified findings only. If none survive, say so and state material verification limitations.
+- When posting findings to GitHub, follow [github-pr-review](../github-pr-review/SKILL.md): post one consolidated `COMMENT` review, never inline comments or `REQUEST_CHANGES`, and organize resolution work into chunks sized for one agent.

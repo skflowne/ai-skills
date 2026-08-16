@@ -11,6 +11,8 @@ Unlike the fixed [council-review](../council-review/SKILL.md) panel, **you** dec
 
 ## Setup
 
+Read and apply the canonical review contract in [pr-review](../pr-review/SKILL.md). Every panelist must invoke it independently; this skill composes specialist focus but does not replace or weaken its scope, isolation, fix-verification, or test-usefulness rules.
+
 1. Ensure environment is ready for review.
 2. Fetch details about the PR you were asked to review.
 3. Fetch the corresponding issue(s).
@@ -45,7 +47,7 @@ Briefly state your chosen panel to the user before spawning (expert name + one-l
 Spawn one sub-agent per chosen expert, **all in parallel**. Each reviewer uses the same base prompt with its assigned role and focus:
 
 ```
-/pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
+/skill:pr-review PR #{number}, but don't post inline comments — report your findings to your parent agent instead.
 
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a realistic failure scenario, and evidence (for example file/line references, a test result, or authoritative documentation).
 
@@ -55,7 +57,7 @@ Your expert role: {role}
 Your focus areas: {focus}
 ```
 
-Pass each sub-agent the PR number, issue context, the original goal, and its assigned role and focus areas.
+Pass each sub-agent only the PR number, original issue context, original goal, target refs, repository profile, and its assigned role and focus areas. Do not pass author rationale, prior reviews, candidate findings, or another panelist's output. Spawn all panelists from fresh context and keep their outputs isolated until synthesis.
 
 ## Synthesis
 
@@ -68,6 +70,7 @@ Your job is to analyze all reviewer reports with a critical mindset — do not a
 - Note where experts disagree and resolve with code/issue evidence.
 - Attribute findings by the expert area you assigned, not by a fixed taxonomy.
 - Preserve each finding's concise description, realistic failure scenario (trigger, mechanism, real-world impact, plausibility), and evidence through deduplication; a finding missing any of these is invalid.
+- Apply the canonical test-usefulness standard to every test finding and to test code introduced by a proposed fix. Green output or a closed comment does not prove that a test prevents a regression or that its implementation is at the correct seam.
 
 ## Root-cause classification
 

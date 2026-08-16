@@ -5,6 +5,8 @@ description: "Review a PR, diff, commit, or selected files for maintainability a
 
 # Code Quality Review
 
+Read and apply the canonical review contract in [pr-review](../pr-review/SKILL.md). This skill adds a maintainability lens but does not weaken its scope, evidence, fix-verification, isolation, or test-usefulness standards.
+
 Review code for long-term maintainability. Report only actionable problems supported by concrete evidence.
 
 ## Scope
@@ -38,7 +40,7 @@ Prioritize these areas:
 - **Abstractions:** abstractions that are premature, misleading, overly generic, or missing where a stable concept is repeated
 - **Clarity:** names, types, control flow, and APIs that obscure intent or permit invalid states
 - **Consistency:** unjustified divergence from established repository patterns
-- **Testability:** designs that make meaningful behavior difficult to isolate or verify
+- **Testability:** designs that make meaningful required behavior difficult to isolate or verify; tautological tests, implementation-derived oracles, mocks that bypass the claimed path, and production hooks added solely for tests
 - **Changeability:** scattered policy, hard-coded assumptions, and extension points that require unrelated edits
 - **Dead weight:** unreachable code, obsolete compatibility paths, redundant comments, unused parameters, or needless dependencies
 
@@ -64,7 +66,7 @@ Do not report:
 - Findings based only on a code snippet when call sites or nearby patterns could resolve the concern
 - Praise or summaries of what works unless explicitly requested
 
-Before reporting, try to disprove each finding by checking call sites, tests, types, and repository conventions. Drop weak or speculative concerns.
+Before reporting, try to disprove each finding by checking call sites, tests, types, and repository conventions. Apply the canonical test-usefulness standard to every test concern: name the protected user/caller behavior or core invariant and the realistic regression the test should catch. Drop weak, generic, or speculative concerns; do not replace a useless test with more infrastructure unless required behavior actually needs it.
 
 ## Severity
 

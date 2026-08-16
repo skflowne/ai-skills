@@ -9,7 +9,7 @@ Run **two** expert reviewers in parallel — correctness against the established
 
 ## Setup
 
-Run the Setup from [drift-review-council](../drift-review-council/SKILL.md) exactly as written there: determine the target (PR number, else current branch vs main), establish review intent from linked issue(s) or branch context, and build the repo profile from the target's `CLAUDE.md`/`AGENTS.md`. Pass the target and intent context to both experts, plus the repo profile to the drift expert.
+Read and apply the canonical review contract in [pr-review](../pr-review/SKILL.md). Run the Setup from [drift-review-council](../drift-review-council/SKILL.md) exactly as written there: determine the target (PR number, else current branch vs main), establish review intent from linked issue(s) or branch context, and build the repo profile from the target's `CLAUDE.md`/`AGENTS.md`. Pass the target and intent context to both experts, plus the repo profile to the drift expert.
 
 ## Expert panel
 
@@ -18,7 +18,7 @@ Spawn **two** sub-agents in parallel:
 **Correctness expert** — uses the council base prompt:
 
 ```
-Review {target}, but don't post comments anywhere — report your findings to your parent agent instead.
+/skill:pr-review Review {target}, but don't post comments anywhere — report your findings to your parent agent instead.
 
 Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a realistic failure scenario, and evidence (for example file/line references, a test result, or authoritative documentation).
 
@@ -30,7 +30,9 @@ Your expert role: Correctness & behavior reviewer
 Your focus areas: Logic bugs, edge cases, incorrect behavior, regressions, and whether the implementation matches the established review goal and acceptance criteria. Do not review architecture, duplication, or conventions — a second expert owns those.
 ```
 
-**Drift expert** — uses the base prompt from [drift-review-council](../drift-review-council/SKILL.md), with its five drift lens rows (excluding correctness) combined into a single focus. Pass it the target, intent context, and repo profile, and instruct it to work the lenses **one at a time, in table order** (reuse & duplication → deletion & bypass → scope, seam & state ownership → test integrity → conventions & docs), running each lens's mechanical checks (`git log --name-only`, `git log --diff-filter=D`, equivalent-symbol searches) rather than one blended pass. Same evidence bar: every finding needs a concise description, a realistic failure scenario, and a concrete location or search/git result; discard anything missing one, and keep correctness bugs and style nits out of this expert's scope. Pass this expert the drift-specific form of the scenario requirement verbatim from drift-review-council's base prompt — the affected party is the next agent or developer to change the code, so the finding must name the realistic edit they will make, what silently breaks when they make it, and the user-visible defect that reaches production as a result. "This is out of scope," "this is duplicated," or "this violates the convention" without that chain is not a finding.
+**Drift expert** — uses the `/skill:pr-review` base prompt from [drift-review-council](../drift-review-council/SKILL.md), with its five drift lens rows (excluding correctness) combined into a single focus. Pass it the target, intent context, and repo profile, and instruct it to work the lenses **one at a time, in table order** (reuse & duplication → deletion & bypass → scope, seam & state ownership → test usefulness → conventions & docs), running each lens's mechanical checks (`git log --name-only`, `git log --diff-filter=D`, equivalent-symbol searches) rather than one blended pass. Same evidence bar: every finding needs a concise description, a realistic failure scenario, and a concrete location or search/git result; discard anything missing one, and keep correctness bugs and style nits out of this expert's scope. Pass this expert the drift-specific form of the scenario requirement verbatim from drift-review-council's base prompt — the affected party is the next agent or developer to change the code, so the finding must name the realistic edit they will make, what silently breaks when they make it, and the user-visible defect that reaches production as a result. "This is out of scope," "this is duplicated," or "this violates the convention" without that chain is not a finding.
+
+Before launch, give each expert only the target refs, original intent, repository profile, and its distinct focus. Use fresh contexts; do not pass author rationale, prior review bodies, candidate findings, expected outcomes, or the other expert's work. Run them in parallel and keep their outputs isolated until both finish.
 
 ## Synthesis
 
@@ -40,6 +42,8 @@ Adjudicate both reports with a critical mindset — do not accept findings at fa
 - Verify duplication claims (the cited original must exist and cover the need) and any external-doc claims (WebFetch before assigning severity).
 - Drop unevidenced or speculative findings from either expert.
 - **Audit every failure scenario against the standard in [pr-review](../pr-review/SKILL.md).** Drop any finding whose trigger no real user, caller, or future edit reaches, or whose impact you cannot trace to a concrete real-world consequence — do not rescue it by downgrading it to a nit. A drift finding that names only the structural smell, without the edit-goes-wrong chain and the user-visible defect it produces, is incomplete: close the chain yourself, and drop it if it does not close.
+- Apply the canonical test-usefulness standard independently. Reject tautological assertions and test-only production mechanisms even when commands are green; do not demand replacement tests or harnesses unless a required behavior and realistic escaping regression justify them.
+- When the target contains fixes from an earlier review, judge the fix against original intent and the pre-fix revision. Do not feed prior reviewer conclusions to the experts or treat matching a finding's wording as resolution; retract invalid findings and escalate wrong-seam fixes.
 
 Then apply the **Classification** and **Escalation rules** from [drift-review-council](../drift-review-council/SKILL.md) verbatim, to **all** surviving clusters — including the correctness expert's: a behavioral bug whose obvious fix is another guard on already-guarded state is `wrong-seam`, no matter which expert found it. Correctness findings with a sound seam are `local-bug`.
 

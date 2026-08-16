@@ -625,7 +625,7 @@ async function withPhaseScout(phaseName, phaseGroup, operation) {
 }
 
 function expertPrompt(prNumber, expert) {
-  return `Follow the pr-review skill to review PR #${prNumber}, but don't post inline comments — report your findings to the workflow supervisor instead.
+  return `/skill:pr-review Review PR #${prNumber}, but don't post inline comments — report your findings to the workflow supervisor instead. Apply the canonical scope, isolation, fix-verification, failure-scenario, and test-usefulness contract.
 
 ${REPO_CONTEXT}
 
@@ -636,7 +636,7 @@ Provide actual evidence for every claim. Do not rely on unlikely hypotheticals. 
 Your expert role: ${expert.role}
 Your focus areas: ${expert.focus}
 
-For every finding include severity, concise description, realistic failure scenario, and evidence. Identify it as found by your exact expert role.
+For every finding include severity, concise description, realistic failure scenario, and evidence. Identify it as found by your exact expert role. For every test concern, name the required user/caller behavior or core invariant, actual path, independent oracle, and realistic regression; reject tautologies and test-only production mechanisms without inventing replacement scope.
 
 A realistic failure scenario has three parts: the concrete trigger (who does what, with which inputs and state, on a path a real user or caller actually takes), the mechanism (what the code then does wrong, at the cited file:line), and the real-world impact (what the person on the other end loses, sees wrong, cannot do, or is exposed to). Also say how a user reaches that state in normal use and how often. Discard — do not hedge, downgrade to a nit, and report anyway — any finding whose scenario reduces to "could cause unexpected behavior," "is not ideal," or "a caller might misuse this," and any whose trigger the call sites, types, or validation already exclude. For findings that are not user-facing, the affected party is the next person to change this code: name the realistic edit, what silently breaks when they make it, and the user-visible defect that ships as a result.`
 }
@@ -693,6 +693,8 @@ Set done=true only if no blocker, major, or minor remains. Otherwise return ever
 
 Audit every failureScenario before returning it: it must name the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user, plus how often that state occurs in normal use. Drop any finding whose trigger no real user or caller reaches, or whose impact you cannot state as a concrete real-world consequence — drop it outright rather than downgrading it to a nit. Where a reviewer asserted a scenario without checking call sites, types, or validation, check them yourself before keeping it. For findings that are not user-facing, the scenario must name the realistic edit that will go wrong and the user-visible defect that ships as a result.
 
+Apply the canonical test-usefulness standard independently. Green output does not prove regression sensitivity. Reject tautological tests and test-only production hooks, but do not demand replacement tests, frameworks, or harnesses unless required behavior and a realistic escaping regression justify them. Prior reviews are deduplication evidence only, not accepted findings or implementation designs.
+
 Apply the skill's mandatory root-cause classification before returning: cluster the surviving findings by shared root cause and set 'rootCause' on every finding to 'local-bug' or 'wrong-seam'. Every 'wrong-seam' finding must also carry 'invariant' — the one-sentence invariant that has no single owner. Do not downgrade a cluster to 'local-bug' because the patch would be smaller or the round is late.`, {
     phase: 'Judge',
     label: `r${round}:yolo:judge`,
@@ -734,14 +736,14 @@ async function finalReJudge(verificationRound, openFindings) {
     phase('Judge')
     log(`Post-fix verification after round ${MAX_ROUNDS}: re-judging ${openFindings.length} finding(s) against the pushed head`)
 
-    const judged = await agent(`Verify the post-fix state of PR #${PR_NUMBER}. The fix-round cap is reached, so this is a targeted verification of previously-open findings, not a fresh review.
+    const judged = await agent(`/skill:pr-review Verify the post-fix state of PR #${PR_NUMBER}. The fix-round cap is reached, so this is a targeted verification, not a fresh broad review. Treat the previously-open findings as claims to re-evaluate, not accepted requirements or designs.
 
 ${REPO_CONTEXT}
 
 Previously-open findings:
 ${JSON.stringify(openFindings)}
 
-For each finding, inspect the current remote head${report.finalSha ? ` (expected ${report.finalSha})` : ''}, the commits pushed since the finding was raised, existing PR comments, and linked follow-up issues, and decide whether it is genuinely resolved. Drop a finding only when the remote head proves it fixed or a linked issue explicitly defers it. Set done=true only if no blocker, major, or minor remains. Otherwise return every still-open actionable finding unchanged in substance; preserve every source finder role.`, {
+For each finding, inspect the original issue intent, pre-fix and current remote head${report.finalSha ? ` (expected ${report.finalSha})` : ''}, commits pushed since the finding was raised, existing PR comments, and linked follow-up issues. Re-evaluate whether the finding was valid and whether the implementation is correct, in scope, and at the owning seam. Retract invalid findings; do not preserve them merely because they were previously open. Apply the canonical test-usefulness standard and reject symptom patches, tautological tests, and test-only production mechanisms. Set done=true only if no blocker, major, or minor remains. Otherwise return every still-open actionable finding with its verified substance and source finder roles.`, {
       label: `r${verificationRound}:final-judge`,
       schema: JUDGE_SCHEMA,
     })
@@ -799,7 +801,7 @@ function actionableFix(findings) {
 // one level deep — already spent by issue-to-pr — so the shape is duplicated deliberately;
 // propagate structural changes to the twin by hand.
 async function requestFixReview(label, subject, context) {
-  const review = await agent(`Act as an independent correctness reviewer verifying a fix for ${subject}, per the supervised-forge skill's review-gate contract. You did not write this fix and have no prior context beyond this message. Inspect the actual commit(s) on the branch yourself — do not trust the implementer's own description of what changed. Confirm the original findings are genuinely resolved and no regression was introduced. Report concrete findings with evidence and exact file references; return no findings if it's clean.
+  const review = await agent(`/skill:pr-review Review the fix for ${subject} as an independent correctness reviewer under the supervised-forge review gate. You did not write this fix and have no prior context beyond this message. Inspect the pre-fix and current commits yourself — do not trust the implementer's description or treat earlier findings as accepted designs. Re-evaluate finding validity, correctness, scope, invariant ownership, test usefulness, and regressions. Retract invalid findings and report wrong-seam fixes. Return no findings if the implementation is clean.
 
 Every finding's description must carry a realistic failure scenario: the concrete trigger a real user or caller actually reaches, the mechanism at the cited file:line, and the real-world impact on the user (what they lose, see wrong, cannot do, or are exposed to), plus how often that state occurs in normal use. If the finding is not user-facing, name instead the realistic edit that will go wrong and the user-visible defect that ships as a result. Return no finding whose harm is only "could cause unexpected behavior" or "is not ideal", and none whose trigger the call sites, types, or validation already exclude — drop it rather than reporting it as a nit, since every reported finding costs another fix round.
 
@@ -834,6 +836,8 @@ ${REPO_CONTEXT}
 Findings to resolve:
 ${JSON.stringify(findings)}
 
+Treat each finding as a claim to verify, not an accepted design. Implement only valid in-scope fixes at the owning seam. Do not add production test hooks, environment branches, public APIs, dependencies, guards, or test infrastructure merely to match a comment. Tests must protect required user/caller behavior or core logic from a realistic regression and use an independent oracle.
+
 Rerun the relevant validation and commit your fixes with a message starting "${label} fix r${round}:". Return the commit sha.`, {
       label: `${label}:fix:r${round}`,
       schema: FIX_COMMIT_SCHEMA,
@@ -843,7 +847,7 @@ Rerun the relevant validation and commit your fixes with a message starting "${l
     fixCommits.push(fix.commitSha)
     findings = actionableFix(await requestFixReview(`${label}:r${round}`, subject, `${context}
 
-Fix round ${round} has since committed fixes for earlier findings on top — review the current state including those fix-up commits, not just any originally-cited commit.`))
+Fix round ${round} has since committed changes on top. Review that fix range independently against the pre-fix state and original requirement, not against the wording or intended implementation of an earlier finding. Retract invalid findings and flag symptom patches, tautological tests, or test-only production mechanisms at the wrong seam.`))
   }
   if (findings.length) {
     log(`${subject}: ${findings.length} finding(s) still open after ${round} fix round(s) — proceeding with residual risk`)
@@ -859,6 +863,8 @@ ${REPO_CONTEXT}
 
 Findings to resolve:
 ${JSON.stringify(milestone.findings)}
+
+Treat these findings as claims to verify, not accepted designs. Keep fixes inside original issue scope and at the owning seam. Do not add production test hooks or tests without a required user/caller path, core invariant, independent oracle, and realistic regression.
 
 Run the relevant tests, lint, typecheck, and other validation. Commit your work with a message starting "Fix ${tag}: ${milestone.title}". Return the commit sha, a concise summary, and the raw validation command output.`, {
     label: `${tag}:implement`,
@@ -893,6 +899,8 @@ ${REPO_CONTEXT}
 
 Findings to resolve:
 ${JSON.stringify(milestone.findings)}
+
+Treat these findings as claims to verify, not accepted designs. Keep fixes inside original issue scope and at the owning seam. Do not add production test hooks or tests without a required user/caller path, core invariant, independent oracle, and realistic regression.
 
 Run whatever validation is feasible inside the worktree (set up dependencies there if the project needs them); full-project validation runs again at integration. Commit your work with a message starting "Fix ${tag}: ${milestone.title}", then run \`git worktree remove --force <that dir>\` (the branch and its commits survive) and return the commit sha, a concise summary, and the raw validation command output.`, {
     label: `${tag}:implement`,
