@@ -20,4 +20,4 @@ Keep reports isolated under the shared contract until every reviewer finishes.
 
 Adjudicate reports under the canonical and drift contracts rather than accepting panel consensus. Deduplicate overlapping findings into root-cause clusters, verify decisive claims from source, resolve disagreements with code and history, classify every survivor, and drop anything that fails canonical evidence or scenario requirements.
 
-Apply the shared handoff using canonical agent-sized resolution chunks, sectioning findings by expert lens when useful.
+Apply the shared handoff using canonical agent-sized resolution chunks. Keep expert lens and classification as compact inline metadata only when material; never section the output by reviewer.

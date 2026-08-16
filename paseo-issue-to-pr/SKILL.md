@@ -33,7 +33,7 @@ Create the review workspace from the exact fetched PR head with a collision-resi
 
 Use the least-privileged provider mode that permits authenticated GitHub access (`full-access` for Codex). Before consuming the round, have that same agent run `gh auth status`, `gh api user`, and a PR-head read. Use reviewer-publish mode when child access succeeds, controller-publish mode when only controller access succeeds, and stop before substantive review when both fail.
 
-The substantive duo task receives only the canonical review inputs plus the round heading, publication mode, artifact path, and these overrides: publishing is preauthorized; include concise dropped-candidate reasons; use `Fix plan: None` when clear; return only the verified permalink on child success or `PUBLISH_RECOVERY_REQUIRED <artifact-path> <error-category>` otherwise.
+The substantive duo task receives only the canonical review inputs plus the round heading, publication mode, artifact path, and these overrides: publishing is preauthorized; keep dropped candidates internal; after the required round heading, use the canonical concise output (`No findings.` when clear); return only the verified permalink on child success or `PUBLISH_RECOVERY_REQUIRED <artifact-path> <error-category>` otherwise.
 
 After the agent idles, query GitHub by the unique round heading:
 
@@ -48,4 +48,4 @@ A child publication failure never authorizes a replacement reviewer. Stop as a h
 
 ## Profile-specific final report
 
-The canonical final report additionally includes CodeGraph report links, whether each review was reviewer-published or controller-recovered, the full decision log, and refactoring performed with its justification. Keep each decision and refactor to one line and use `None` for empty sections.
+The canonical final report additionally includes CodeGraph report links and whether each review was reviewer-published or controller-recovered. Add material decisions or justified refactors only when nonempty, one line each; never emit empty sections or `None` placeholders.

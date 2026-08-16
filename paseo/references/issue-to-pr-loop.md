@@ -23,4 +23,4 @@ This workflow runs to completion under Paseo's preflight, task-brief, invariant-
 
 ## Standard controller handoff
 
-Post or update one concise final PR comment containing workflow status, validation, review rounds and permalinks, integrated chunks, deferred findings and reasons, material decisions, residual risks, and profile-specific artifacts. Reuse the existing report comment when resuming.
+Post or update one concise final PR comment with workflow status, validation, review permalinks, and required profile artifacts. Add deferred findings, material decisions, or residual risks only when nonempty. Do not reproduce review bodies, list clear reviewer verdicts, repeat integrated chunks already visible in linked reviews or commits, or emit empty headings and `None` placeholders. Reuse the existing report comment when resuming.

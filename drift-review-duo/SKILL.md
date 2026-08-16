@@ -20,4 +20,4 @@ Keep outputs isolated under the shared contract until both finish.
 
 Adjudicate both reports under the canonical and drift contracts; do not launch a third broad review. Deduplicate overlapping behavior and structural findings into one root-cause cluster, verify decisive claims from source, classify every survivor, and drop anything that fails canonical evidence or scenario requirements.
 
-Apply the shared handoff using canonical agent-sized resolution chunks. Include concise reasons for dropped candidates when the caller requires them.
+Apply the shared handoff using canonical agent-sized resolution chunks. Keep dropped candidates and separate expert verdicts internal unless a verified deferred risk materially changes the user's next action.

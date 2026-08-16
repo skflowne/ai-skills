@@ -30,8 +30,8 @@ Each implementer owns all code and test edits for its concern, reuses establishe
 
 The canonical review skill owns scope, isolation, evidence, test usefulness, failure scenarios, and fix verification. Lens prompts add focus only and must not restate or weaken it. Run reviewers in parallel and keep reports isolated until all finish.
 
-The implementer verifies every finding against the task, fixes valid issues at the owning seam, reruns invalidated checks, and reuses the same reviewers until clear. It returns its commits or diff, invariant and scope outcome, validation, reviewer outcomes, residual risks, and integration notes.
+The implementer verifies every finding against the task, fixes valid issues at the owning seam, reruns invalidated checks, and reuses the same reviewers until clear. It returns its commits or diff, invariant and scope outcome, validation, surviving findings, residual risks, and integration notes. Collapse an all-clear reviewer trio to `Review: clear`; do not repeat three empty reports.
 
 ## Integration and handoff
 
-Integrate independently cleared concerns in dependency order and validate the assembled result without repeating implementer reviews. Route behavior-bearing conflict or integration edits to one explicit implementer with its own reviewer trio; the coordinator must not silently author them. Return implemented concerns, base/head and commits, assembled validation, review outcomes, decisions, and residual risks.
+Integrate independently cleared concerns in dependency order and validate the assembled result without repeating implementer reviews. Route behavior-bearing conflict or integration edits to one explicit implementer with its own reviewer trio; the coordinator must not silently author them. Return implemented concerns, base/head and commits, assembled validation, surviving findings, material decisions, and residual risks; omit empty sections and repeated clear verdicts.

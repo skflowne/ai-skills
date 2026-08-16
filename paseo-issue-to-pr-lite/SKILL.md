@@ -25,7 +25,7 @@ Check activity every 15 minutes for stalls, loops, scope growth, or drift and se
 
 ## Review and recovery deltas
 
-Run each duo read-only against the exact assembled range. Publishing its canonical consolidated `COMMENT` review is preauthorized. Require concise reasons for dropped candidates and `Fix plan: None` when clear, with no intermediate analysis in the posted body.
+Run each duo read-only against the exact assembled range. Publishing its canonical consolidated `COMMENT` review is preauthorized. Keep dropped candidates and intermediate analysis internal; use the canonical concise output (`No findings.` when clear).
 
 Resume a failed review agent rather than replacing it. Read the uniquely posted review directly and never publish or request a second copy. If the same reviewer cannot produce one verifiable posted review after Paseo recovery, preserve its logs and stop as an infrastructure blocker.
 
@@ -33,4 +33,4 @@ Do not add a solo review after fix chunks; their persistent supervision is inter
 
 ## Profile-specific final report
 
-The canonical final report must include duo permalinks, deferred findings and reasons, material decisions, scope-control outcomes, and residual risks.
+The canonical final report includes duo permalinks. Add deferred findings, material decisions, scope-control outcomes, or residual risks only when nonempty and material.
