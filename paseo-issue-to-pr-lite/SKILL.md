@@ -33,4 +33,4 @@ Do not add a solo review after fix chunks; their persistent supervision is inter
 
 ## Profile-specific final report
 
-The canonical final report includes duo permalinks. Add deferred findings, material decisions, scope-control outcomes, or residual risks only when nonempty and material.
+The canonical final report includes duo permalinks. Add a scope-control outcome only when it changed the accepted implementation boundary; normal scope compliance is not reportable.

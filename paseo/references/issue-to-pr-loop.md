@@ -23,4 +23,8 @@ This workflow runs to completion under Paseo's preflight, task-brief, invariant-
 
 ## Standard controller handoff
 
-Post or update one concise final PR comment with workflow status, validation, review permalinks, and required profile artifacts. Add deferred findings, material decisions, or residual risks only when nonempty. Do not reproduce review bodies, list clear reviewer verdicts, repeat integrated chunks already visible in linked reviews or commits, or emit empty headings and `None` placeholders. Reuse the existing report comment when resuming.
+Post or update one concise final PR comment, then give the user a matching terse handoff. Include only the workflow status, the PR URL in the user handoff, and round-labeled review permalinks without summaries. Add failed checks or blockers, deferred findings, material decisions, scope expansions, residual risks, or supporting artifact links only when nonempty and actionable. Reuse the existing PR comment when resuming.
+
+On success, omit routine validation, absent unconfigured CI, base or head SHAs, branch/open state, merge or auto-merge state, expected scope or instruction compliance, integrated-chunk summaries, and clear-review verdicts. Mention validation or CI only when a check failed or blocked completion, naming the failed check and impact. Never reproduce review bodies or emit empty headings and `None` placeholders.
+
+A material decision is a real choice among viable options that affects the product or its maintenance, such as a dependency choice—not a stack inventory or restatement of the issue. A residual risk is an unresolved implementation-specific limitation on which the human can act, not a normal workflow fact.
