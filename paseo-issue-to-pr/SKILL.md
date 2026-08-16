@@ -48,4 +48,4 @@ A child publication failure never authorizes a replacement reviewer. Stop as a h
 
 ## Profile-specific final report
 
-The canonical final report additionally includes CodeGraph report links and whether each review was reviewer-published or controller-recovered. Add material decisions or justified refactors only when nonempty, one line each; never emit empty sections or `None` placeholders.
+Add a CodeGraph or review-publication recovery artifact only when it supports a reported failure, blocker, or actionable residual risk. A justified refactor is reportable only when it meets the canonical material-decision threshold.
