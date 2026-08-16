@@ -103,8 +103,9 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 
 ## Handoff
 
-1. Check what has already been posted on the PR or filed as follow-up issues; drop anything already recorded unless there is a new discovery worth an update.
-2. Summarize verified findings only (not what's clean), ordered by severity, sectioned by expert lens. Tag each with its cluster and classification. Missing repository conventions are a verification limitation unless the original intent or repository policy explicitly requires adding them; do not turn the absence into current-PR work.
-3. Recommend a resolution plan in four lists: scope reductions (`scope-drift`), mechanical fixes (`convention-violation`), patches (`local-bug`), and refactor tasks (`wrong-seam`, each with its invariant named) — never folded together, even when a patch outranks a refactor on severity. Within those lists, organize the work into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md).
-4. Ask the user if they accept the plan.
-5. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`). File `wrong-seam` refactor tasks as follow-up issues (via [github-issue-create](../github-issue-create/SKILL.md)) and reference them in the review.
+1. Drop findings already posted on the PR or filed as follow-up issues unless new evidence warrants an update.
+2. Follow the canonical [review output contract](../pr-review/SKILL.md#review-output-contract). If nothing survives synthesis, return only `No findings.` plus material validation or limitations, then stop the handoff; do not report each expert's clear verdict, clean areas, empty classification lists, rejected candidates, or ask for plan approval.
+3. When findings survive, use one severity-ordered findings list. Add the expert lens, cluster, and classification inline as compact metadata. Do not section by expert.
+4. Use one **Resolution chunks** section as the entire plan. Reference finding IDs and label each chunk with its classification instead of repeating the findings across separate scope-reduction, mechanical-fix, patch, and refactor lists. Name the invariant for `wrong-seam` chunks. Omit empty classes and follow-up work.
+5. Ask the user if they accept the plan.
+6. If approved and reviewing a PR, follow [github-pr-review](../github-pr-review/SKILL.md) to post the result once as a `COMMENT`, never inline or as `REQUEST_CHANGES`. File `wrong-seam` work as follow-up issues via [github-issue-create](../github-issue-create/SKILL.md) when it is outside the current target, and reference those issues without restating their full content.

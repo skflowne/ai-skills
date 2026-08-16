@@ -91,6 +91,6 @@ or is silently missed when they make it, the user-visible defect that results, a
 edit is. Close with the smallest practical fix.
 ```
 
-If there are no actionable findings, say so plainly and mention any verification limitations. Keep the report focused; do not produce a general code walkthrough.
+Follow the canonical concise output contract. If there are no actionable findings, return `No findings.` plus only material validation or limitations. Do not add a code walkthrough, clean-area summary, rejected concerns, or empty plan sections.
 
 When posting findings to a GitHub PR, follow [github-pr-review](../github-pr-review/SKILL.md): use one consolidated review body rather than inline comments, and group the resolution work into chunks sized for one agent. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`).

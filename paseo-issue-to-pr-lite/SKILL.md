@@ -87,7 +87,7 @@ The review agent applies the following adjudication before posting, and the work
 
 A round is clear only when no verified worthwhile findings remain.
 
-The review agent publishes the final eligible findings, agent-sized chunk plan, and concise reasons for dropped candidates through `github-pr-review`; it omits intermediate analysis and uses `Fix plan: None` for a clear round. After `paseo wait`, the workflow reads this posted review directly and must not publish a second review or ask the agent to reproduce its contents. The review must exist on the PR before any fixer starts. Once it and all needed evidence are durable, retire the review agent and workspace services immediately with the retirement protocol.
+The review agent follows the canonical concise output contract through `github-pr-review`. Keep dropped, disproven, duplicate, and speculative candidates internal. For a clear round, post `No findings.` plus only material validation or limitations—no headings, per-expert verdicts, empty sections, or `Fix plan: None`. When findings exist, publish one findings list and one agent-sized resolution-chunks plan without repeating evidence between them. After `paseo wait`, read the posted review directly; do not publish it again or ask the agent to reproduce it. The review must exist before any fixer starts. Once its evidence is durable, retire the review agent and workspace services immediately with the retirement protocol.
 
 ## 4. Run one steered fixer per chunk
 
@@ -153,15 +153,7 @@ Never exceed four assembled review rounds. Repeated findings against the same in
 
 ## 7. Final handoff and cleanup
 
-Post or update one concise final PR comment containing:
-
-- workflow status: `clear within round cap`, `round cap reached — not verified clear`, or `hard blocker`;
-- validation and CI results;
-- duo rounds and review permalinks;
-- integrated chunk IDs and commits;
-- deferred findings and reasons;
-- material decisions; and
-- residual risks.
+Post or update one concise final PR comment with workflow status, validation/CI result, and duo-review permalinks. Add integrated chunks, deferred findings, material decisions, or residual risks only when they are nonempty and not already clear from linked reviews or commits. Do not reproduce review bodies, list clear reviewer verdicts, or emit empty headings and `None` placeholders.
 
 Never merge, enable auto-merge, or replace the PR body.
 
