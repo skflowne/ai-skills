@@ -3,50 +3,21 @@ name: drift-review-duo
 description: "Run a lightweight two-expert review with one correctness-vs-review-intent reviewer and one drift reviewer in parallel, then aggregate, classify, and hand off. Use only when the user explicitly names and requests this skill."
 ---
 
-# Drift Review (duo)
+# Drift Review Duo
 
-Run **two** expert reviewers in parallel — correctness against the established review intent, and drift against the codebase — then synthesize. The middle ground between a solo pass and a full [drift-review-council](../drift-review-council/SKILL.md): every change gets both questions asked, by reviewers whose incentives don't mix (a correctness reviewer closes findings with patches; a drift reviewer must be free to say the patch is the problem).
+Read and apply the canonical [PR review](../pr-review/SKILL.md) and shared [drift-review contract](../pr-review/references/drift-review.md). This skill owns only the two-expert topology and synthesis.
 
-## Setup
+## Panel
 
-Read and apply the canonical review contract in [pr-review](../pr-review/SKILL.md). Run the Setup from [drift-review-council](../drift-review-council/SKILL.md) exactly as written there: determine the target (PR number, else current branch vs main), establish review intent from linked issue(s) or branch context, and build the repo profile from the target's `CLAUDE.md`/`AGENTS.md`. Pass the target and intent context to both experts, plus the repo profile to the drift expert.
+Complete the shared setup, then spawn exactly two fresh, independent, read-only reviewers in parallel. Each prompt begins `/skill:pr-review` and contains only target refs, original intent and acceptance criteria, repository profile, raw validation evidence, its focus below, and an instruction to report to the parent rather than publish:
 
-## Expert panel
+- **Correctness:** behavior, edge cases, regressions, and implementation versus intent. Exclude architecture, duplication, and conventions.
+- **Drift:** apply the five shared drift lenses one at a time in table order—reuse and duplication; deletion and bypass; scope, seam, and state ownership; test usefulness; conventions and docs. Include the complete `Required checks` cell for all five rows in this reviewer's prompt so its fresh context contains the actual searches and history checks. Exclude ordinary correctness bugs and style preferences.
 
-Spawn **two** sub-agents in parallel:
+Keep outputs isolated under the shared contract until both finish.
 
-**Correctness expert** — uses the council base prompt:
+## Synthesis and handoff
 
-```
-/skill:pr-review Review {target}, but don't post comments anywhere — report your findings to your parent agent instead.
+Adjudicate both reports under the canonical and drift contracts; do not launch a third broad review. Deduplicate overlapping behavior and structural findings into one root-cause cluster, verify decisive claims from source, classify every survivor, and drop anything that fails canonical evidence or scenario requirements.
 
-Provide actual evidence for every claim. Do not rely on hypotheticals that are unlikely to materialize. If unsure, search the codebase or fetch relevant docs. For every finding, provide a concise description, a realistic failure scenario, and evidence (for example file/line references, a test result, or authoritative documentation).
-
-A realistic failure scenario has three parts, per the Failure scenario standard in pr-review: the concrete trigger (who does what, with which inputs and state, on a path a real user or caller actually takes), the mechanism (what the code then does wrong, at the cited file:line), and the real-world impact (what the person on the other end loses, sees wrong, cannot do, or is exposed to). Also say how a user reaches that state in normal use and how often. Discard — do not hedge and report — any finding whose scenario reduces to "could cause unexpected behavior," "is not ideal," or "a caller might misuse this," and any whose trigger the call sites, types, or validation already exclude.
-
-Review goal and acceptance criteria: {intent_context}
-
-Your expert role: Correctness & behavior reviewer
-Your focus areas: Logic bugs, edge cases, incorrect behavior, regressions, and whether the implementation matches the established review goal and acceptance criteria. Do not review architecture, duplication, or conventions — a second expert owns those.
-```
-
-**Drift expert** — uses the `/skill:pr-review` base prompt from [drift-review-council](../drift-review-council/SKILL.md), with its five drift lens rows (excluding correctness) combined into a single focus. Pass it the target, intent context, and repo profile, and instruct it to work the lenses **one at a time, in table order** (reuse & duplication → deletion & bypass → scope, seam & state ownership → test usefulness → conventions & docs), running each lens's mechanical checks (`git log --name-only`, `git log --diff-filter=D`, equivalent-symbol searches) rather than one blended pass. Same evidence bar: every finding needs a concise description, a realistic failure scenario, and a concrete location or search/git result; discard anything missing one, and keep correctness bugs and style nits out of this expert's scope. Pass this expert the drift-specific form of the scenario requirement verbatim from drift-review-council's base prompt — the affected party is the next agent or developer to change the code, so the finding must name the realistic edit they will make, what silently breaks when they make it, and the user-visible defect that reaches production as a result. "This is out of scope," "this is duplicated," or "this violates the convention" without that chain is not a finding.
-
-Before launch, give each expert only the target refs, original intent, repository profile, and its distinct focus. Use fresh contexts; do not pass author rationale, prior review bodies, candidate findings, expected outcomes, or the other expert's work. Run them in parallel and keep their outputs isolated until both finish.
-
-## Synthesis
-
-Adjudicate both reports with a critical mindset — do not accept findings at face value, and do not start a third broad review.
-
-- Deduplicate across the two reports; where both flag the same code, keep the drift framing if the defect is structural and the correctness framing if it is behavioral — one cluster, not two findings.
-- Verify duplication claims (the cited original must exist and cover the need) and any external-doc claims (WebFetch before assigning severity).
-- Drop unevidenced or speculative findings from either expert.
-- **Audit every failure scenario against the standard in [pr-review](../pr-review/SKILL.md).** Drop any finding whose trigger no real user, caller, or future edit reaches, or whose impact you cannot trace to a concrete real-world consequence — do not rescue it by downgrading it to a nit. A drift finding that names only the structural smell, without the edit-goes-wrong chain and the user-visible defect it produces, is incomplete: close the chain yourself, and drop it if it does not close.
-- Apply the canonical test-usefulness standard independently. Reject tautological assertions and test-only production mechanisms even when commands are green; do not demand replacement tests or harnesses unless a required behavior and realistic escaping regression justify them.
-- When the target contains fixes from an earlier review, judge the fix against original intent and the pre-fix revision. Do not feed prior reviewer conclusions to the experts or treat matching a finding's wording as resolution; retract invalid findings and escalate wrong-seam fixes.
-
-Then apply the **Classification** and **Escalation rules** from [drift-review-council](../drift-review-council/SKILL.md) verbatim, to **all** surviving clusters — including the correctness expert's: a behavioral bug whose obvious fix is another guard on already-guarded state is `wrong-seam`, no matter which expert found it. Correctness findings with a sound seam are `local-bug`.
-
-## Handoff
-
-Follow drift-review-council's Handoff and the canonical review output contract. Report only the synthesized result, never separate correctness/drift verdicts. A clear review is `No findings.` plus only material validation or limitations. When findings exist, use one findings list and one resolution-chunks plan with lens and classification inline; omit empty classes and repeated expert summaries. Ask before posting, then publish once through [github-pr-review](../github-pr-review/SKILL.md) as a `COMMENT`, never inline or as `REQUEST_CHANGES`. File only out-of-target `wrong-seam` work through [github-issue-create](../github-issue-create/SKILL.md).
+Apply the shared handoff using canonical agent-sized resolution chunks. Include concise reasons for dropped candidates when the caller requires them.

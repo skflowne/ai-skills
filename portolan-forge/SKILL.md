@@ -5,25 +5,33 @@ description: "Implement nontrivial or large repository changes through ownership
 
 # Portolan Forge
 
-Follow `AGENTS.md` and the repository instructions it selects. They define the engineering, testing, validation, and handoff rules. Do not invoke another forge skill.
+Follow repository instructions. They own engineering, testing, validation, and handoff rules. Do not invoke another forge skill.
 
-## Workflow
+## Plan ownership before delegation
 
-1. Read the task and repository instructions. If the task is an issue, first verify the issue state, discussion, linked issues and PRs, and all relevant existing work across the codebase, local/remote branches, worktrees, commits, and open/closed/draft PRs. A small read-only scout fleet is advised when the history or repository state is nontrivial, sized proportionally to the task. Give each scout one bounded concern (issue context, codebase status, or branch/PR state) and require a concise, evidence-backed summary with only key state, exact references, and remaining-work implications—not raw logs or full transcripts. Use fewer scouts for narrow work and none when one quick pass is enough. Synthesize the summaries before planning; never assume the issue is untouched or that a fresh implementation is required.
-2. Before planning or editing, explore the current implementation end to end. Identify behavior and data flow, existing owners and boundaries, extension points, related shared concepts, repository-prescribed tests, and local conventions. For a large codebase, delegate bounded read-only exploration by concern and synthesize the findings with code references. Resolve material unknowns instead of inferring architecture from names.
-3. From that evidence, define the smallest complete remaining change and the number of implementation owners it needs.
-4. Choose the execution topology from the plan:
-   - **One implementer:** The main agent implements directly and creates and manages its own three reviewer agents. Do not spawn an implementation subagent.
-   - **Multiple implementers:** The main agent only plans, delegates, supervises, and integrates. It does not implement or run root reviewers. Each delegated implementer creates and manages its own three reviewer agents.
-5. For multiple implementers, split work into complete, independently verifiable concerns along ownership boundaries. Give every invariant, shared concept, and cross-cutting change one owner. Assign foundational concerns before dependent work. Do not split by arbitrary file counts or layers.
-6. Brief each delegated implementer with the original task, relevant repository instructions, explicit scope and non-goals, exploration findings, ownership and interfaces, dependencies, base ref, acceptance evidence, and validation commands. Concurrent writers must use isolated worktrees or equivalent isolated workspaces; otherwise serialize them.
-7. Apply the same topology recursively when a delegated concern still needs multiple implementers. Every edit must have one explicit implementation owner; never create a coordinator with a single implementation child merely to reproduce this workflow.
-8. Each implementer implements its concern and runs the focused validation required by the repository.
-9. Each implementer has its own three independent, read-only reviewer agents inspect its completed diff. Begin every reviewer prompt with `/skill:pr-review` so it applies the canonical scope, isolation, fix-verification, failure-scenario, and test-usefulness contract. Spawn reviewers from fresh contexts with only the original task boundary, target refs, repository profile, validation evidence, and their distinct lens. Do not pass implementation rationale, prior reviewer reports, candidate findings, expected outcomes, or another reviewer's output; run them in parallel and keep reports isolated until all finish. Reviewers must not edit the implementation:
-   - **Test reviewer:** Apply only the repository's testing strategy and the canonical test-usefulness standard. For each added or modified test, identify the required user/caller behavior or core invariant, actual path, independent oracle, and realistic regression that makes it fail. Reject tautologies, implementation-derived expectations, mocks that bypass the path, and test-only production branches/hooks/protocols. Do not demand extra test types, frameworks, broad coverage, runtime tests for static types/constants/configuration, or test changes the task and repository do not require.
-   - **Architecture reviewer:** Enforce single responsibility, clear ownership, and repository dependency direction. Ensure each invariant and domain concept has one source of truth, with genuinely shared behavior in the appropriate common core. Flag layer bypasses, dependency cycles, leaked internals, duplicated concepts, and parallel implementations that evade established extension points. Preserve boundary contracts unless the task requires changing them. Do not demand abstractions for superficial similarity or redesign outside the changed behavior.
-   - **Maintainability reviewer:** Require the smallest necessary diff, no unwarranted scope expansion or incidental churn, and adherence to repository standards. Check local readability, hidden coupling, consistency with established patterns, unnecessary complexity or public API surface, obsolete code exposed by the change, and documentation made inaccurate. Reject speculative cleanup and unrelated refactoring.
-10. Require each finding to identify the affected code, concrete impact, and repository evidence under the canonical review contract. Reject speculative, stylistic, or out-of-scope findings. Verification uncertainty is a limitation, not permission to invent application code or test infrastructure.
-11. Have the implementer verify every finding against the original task, fix valid issues, rerun invalidated checks, and request re-review from the same reviewers until no substantive findings remain. Re-review is independent implementation review, not comment closure: inspect the fix against the pre-fix revision, retract invalid findings, and classify symptom patches, misplaced test mechanisms, and production test hooks as wrong-seam work immediately. A fix is clear only when it is correct, in scope, and at the owning seam.
-12. Have each delegated implementer return its commit or diff, validation evidence, surviving reviewer findings, and integration notes. Collapse an all-clear reviewer trio to `Review: clear`; do not repeat three empty reviewer reports. The main agent integrates cleared concerns in dependency order and validates the assembled change without repeating reviews. Route any required integration or conflict-resolution code changes to an explicit implementer, who runs its own reviewer trio; the main agent must not silently implement them.
-13. Report the implemented change and validation once. Include only surviving review findings and material residual risk; omit per-reviewer clear verdicts and empty sections.
+Inspect issue state and discussion, linked work, relevant implementation and tests, repository boundaries and extension points, and related branches, worktrees, commits, and PRs. Use proportional read-only scouts for distinct evidence gaps, but synthesize their concise findings before planning.
+
+Define the smallest complete remaining change and assign every invariant, shared concept, cross-cutting decision, and edit one end-to-end owner. Split by independently verifiable concerns, never arbitrary files or layers. Foundational owners precede dependents.
+
+Choose the topology:
+
+- **One implementer:** implement directly; do not create an implementation child.
+- **Multiple implementers:** only plan, delegate, supervise, and integrate. Each child receives the original boundary, repository constraints, scope and non-goals, ownership and interfaces, dependencies, base ref, acceptance evidence, and validation. Isolate concurrent writers; serialize overlapping invariants.
+
+Apply the same rule recursively only when a delegated concern genuinely needs multiple owners. Never create a coordinator with one implementation child merely to reproduce this workflow.
+
+## Implementer contract
+
+Each implementer owns all code and test edits for its concern, reuses established mechanisms, validates proportionally, and then launches exactly three independent fresh read-only reviewers. Every reviewer prompt begins `/skill:pr-review` and contains only the original task boundary, target refs, repository profile, raw validation, one lens below, and no implementation rationale or other report:
+
+- **Tests:** repository testing strategy and whether changed evidence proves required behavior through a useful real path.
+- **Architecture:** invariant ownership, dependency direction, extension points, shared concepts, duplication, bypass, and leaked internals.
+- **Maintainability:** smallest necessary diff, local clarity, established patterns, hidden coupling, obsolete code, and documentation accuracy.
+
+The canonical review skill owns scope, isolation, evidence, test usefulness, failure scenarios, and fix verification. Lens prompts add focus only and must not restate or weaken it. Run reviewers in parallel and keep reports isolated until all finish.
+
+The implementer verifies every finding against the task, fixes valid issues at the owning seam, reruns invalidated checks, and reuses the same reviewers until clear. It returns its commits or diff, invariant and scope outcome, validation, reviewer outcomes, residual risks, and integration notes.
+
+## Integration and handoff
+
+Integrate independently cleared concerns in dependency order and validate the assembled result without repeating implementer reviews. Route behavior-bearing conflict or integration edits to one explicit implementer with its own reviewer trio; the coordinator must not silently author them. Return implemented concerns, base/head and commits, assembled validation, review outcomes, decisions, and residual risks.
