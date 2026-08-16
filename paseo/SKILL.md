@@ -102,7 +102,26 @@ Treat Paseo status as control-plane state, not proof that the provider process e
 
 If `send` or `wait` reports that the agent is already processing, do not queue more recovery messages or launch a replacement. Continue observing the existing run. Never both queue a recovery follow-up and create a replacement agent: the delayed follow-up can revive the original and create two writers.
 
-When an owned workflow finishes, reconcile every captured agent ID: verify no obsolete implementation process is still running, the intended branch is clean, and its local and remote tips match. If cancellation is not acknowledged, do not treat the workspace as reusable; report the ambiguous state and preserve it until the process is definitively terminated. Do not silently restart, stop, archive, or delete an agent the user may still be using.
+Do not silently restart, stop, archive, or delete an agent the user may still be using.
+
+### Run-to-completion workflows
+
+When an invoking workflow explicitly runs to completion, launch every agent in the background and use `paseo wait <agent-id> --json` after each launch or `paseo send`. This overrides the normal return-after-launch behavior only for that workflow.
+
+Do not substitute foreground `paseo run`, `paseo logs --follow`, `watch`, polling loops, sleeps, shell `timeout`, or oversized generic command timeouts. Do not pass `--timeout` to `paseo wait`. After it returns, inspect the agent and recent logs. For parallel agents, wait once per ID; completed agents return immediately.
+
+### Workflow lifecycle ledger and retirement
+
+A run-to-completion multi-agent workflow must keep a ledger outside committed source for every workflow-created agent and workspace, including failed launches: ID, canonical path, branch, role, base/head SHA, and lifecycle state. Record long-lived processes and services started by setup, agents, or validation, including PID when known, canonical cwd, command, listener/port when relevant, ownership evidence, and repository-prescribed teardown.
+
+Retire an agent or workspace only after its handoff and evidence are durable:
+
+1. Inspect the agent, logs, and processes rooted in the workspace's canonical path. Stop any live provider or child and verify process exit; `idle`, `error`, `paseo stop` output, or a status transition alone is not proof.
+2. From that workspace, run repository-prescribed teardown for isolated databases, dev/test servers, Playwright servers, emulators, CodeGraph/MCP servers, and other auxiliary services started for the task.
+3. Match any survivor by the ledger's PID, command, and canonical cwd. Terminate only that workflow-owned process, wait, and re-inspect; never use broad process-name kills or affect user-owned sessions.
+4. Re-scan processes and relevant listeners, verify the tree is clean and branch evidence is preserved, record teardown evidence, and confirm local and remote branch tips match when applicable. Process cleanup does not require deleting the worktree.
+
+Before completion, reconcile every ledger entry, including failed launches, with this protocol. Preserve ambiguous branches and evidence. A live workflow-owned process is a blocker until stopped or reported with its PID, command, cwd, and attempted teardown.
 
 ## Windows and UI behavior
 

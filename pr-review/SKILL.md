@@ -5,14 +5,21 @@ description: "Canonical code-review contract and PR review skill. Use only when 
 
 # PR Review — canonical contract
 
-This is the canonical contract for every review skill in this repository. Skills may add orchestration, specialist lenses, classifications, or publishing mechanics, but they must require every reviewer and fix verifier to apply this contract and must not weaken it.
+This is the canonical contract for every review skill
 
 When this skill is invoked directly, review the specified PR. If no PR is specified, stop and ask for it. Wrapper skills may apply this contract to an explicit branch, commit range, diff, or file target.
+
+## Goals
+- Validate correctness and ensure shipped code actually works as intended.
+- Ensure tests are meaningful in preventing regressions and ensuring core software features are stable.
+- Keep the codebase maintainable and avoid unnecessary complexity from piling up.
+
+Every rule exists to serve these goals, do not blindly follow the rules if in the specific situation it would contradict the goals.
 
 ## Establish the review boundary
 
 1. Fetch the target, linked issue and discussion, repository instructions, base and head refs, and relevant code and tests.
-2. Treat the original task, acceptance criteria, and repository policy as the outer scope boundary.
+2. Treat the original task, acceptance criteria, and repository policy as authoritative and defining the full scope of the task and eventual fixes.
 3. Review whether the change is a complete and correct implementation inside that boundary. Do not invent adjacent requirements, product behavior, compatibility work, abstractions, dependencies, cleanup, or test infrastructure.
 4. A reviewer may require credible evidence for behavior the task actually requires. That does not authorize adding production APIs, environment branches, lifecycle hooks, dependencies, or other application code solely to make the review easier.
 5. If a concern cannot be verified, report the verification limitation. Uncertainty is not a finding and must not be converted into speculative work.
@@ -64,13 +71,11 @@ A finding without a realistic failure scenario is not a finding. Write each scen
 3. **Real-world impact** — what someone loses, sees wrong, cannot complete, or is exposed to.
 4. **Plausibility** — how the state occurs in normal use and how often.
 
-Reject and drop scenarios that reduce to “could cause unexpected behavior,” “is not ideal,” “may break in the future,” or “a caller might misuse this.” Reject triggers excluded by call sites, types, or validation and impacts that cannot be stated concretely.
-
 For non-user-facing findings, the affected party is the next developer changing the code: name the realistic edit, what silently breaks or is missed, and the user-visible defect that ships. Test findings additionally use the test usefulness standard: a tautology or production test hook is evidenced by showing why the test cannot detect the claimed regression or why the proof lives at the wrong seam; do not invent extra product behavior to justify removing it.
 
 ## Review output contract
 
-Report decisions, not the review process. Do not include reviewer-by-reviewer summaries, clean-area walkthroughs, rejected candidate analysis, or repeated statements that the target is clear.
+Report decisions, not the review process. Do not include reviewer-by-reviewer summaries, clean-area walkthroughs, rejected-candidate analysis, or repeated statements that the target is clear.
 
 When no findings survive, the complete result is:
 
@@ -81,21 +86,23 @@ Validation: <only material checks, if useful>
 Limitations: <only material unverified behavior, if any>
 ```
 
-Omit the `Validation` or `Limitations` line when it adds no useful information. Summarize related passing checks (for example, `Validation: required Linux checks passed`) instead of dumping a routine command inventory; name exact commands only when a failure or reproducibility concern makes them material. Do not add headings, empty sections, `None` placeholders, a fix plan, follow-up section, per-expert verdicts, or prose describing what worked.
+Omit lines that add no useful information. Summarize routine passing checks rather than dumping command inventories. Do not add headings, empty sections, `None` placeholders, a fix plan, follow-up section, per-expert verdicts, or prose describing what worked.
 
 When findings survive:
 
-1. Include one **Findings** section, ordered by severity. State each finding once with its evidence and realistic failure scenario. Add lens or classification as compact metadata only when the wrapper skill requires it; do not section the report by reviewer.
-2. Include **Resolution chunks** only when current-target work exists. Reference finding IDs instead of repeating their evidence or scenarios. For each chunk, state only owner/scope, outcome, dependencies, acceptance criteria, and focused validation.
+1. Include one **Findings** section, ordered by severity. State each finding once with its evidence and realistic failure scenario. Add lens or classification as compact metadata only when a wrapper requires it; do not section by reviewer.
+2. Include **Resolution chunks** only for current-target work. Reference finding IDs instead of repeating evidence or scenarios. Each chunk states outcome, owned scope, dependencies, acceptance criteria, and focused validation.
 3. Include **Follow-up work** only when non-current work actually exists.
 4. End with compact `Validation` and `Limitations` lines only when material.
 
-Use only one planning representation. `Resolution chunks` is the fix plan; never repeat it as a resolution plan, categorized plan, patch list, or `Fix plan`. Omit empty categories rather than writing `None`. Internal adjudication, specialist disagreements, and dropped candidates stay out of the report unless a verified deferred risk materially affects the user's next action.
+Use **Blocker**, **Major**, **Minor**, and **Nit** consistently from highest to lowest impact. `Resolution chunks` is the only fix plan; never repeat it as categorized lists or `Fix plan`. Omit empty categories. Internal adjudication, disagreements, and dropped candidates stay out of the report unless a verified deferred risk materially affects the user's next action.
+
+Each resolution chunk must be independently actionable by one agent in one focused run. Keep one coherent responsibility and a reviewable diff; split unrelated ownership or broad context and merge fragments that cannot be implemented or validated independently. A finding may cite unchanged code when the reviewed change exposes it, but resolve locations against the reviewed head and explain the connection.
 
 ## Execution
 
 - Inspect the implementation and tests directly; do not infer quality from summaries or green commands.
 - Run focused validation when it can confirm or reject a material concern.
 - Separate a valid requirement from a proposed implementation. Do not prescribe production machinery when an external test harness, existing seam, typecheck, or no additional test is the proportional answer.
-- Report verified findings only and follow the review output contract exactly.
-- When posting findings to GitHub, follow [github-pr-review](../github-pr-review/SKILL.md): post one consolidated `COMMENT` review, never inline comments or `REQUEST_CHANGES`, and organize resolution work into chunks sized for one agent.
+- Report verified findings only. If none survive, say so and state material verification limitations.
+- When publishing findings to GitHub, follow [github-pr-review](../github-pr-review/SKILL.md).
