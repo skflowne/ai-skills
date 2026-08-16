@@ -77,4 +77,4 @@ When the user approves the fix plan after a council review:
 1. Read this skill and the canonical [pr-review](../pr-review/SKILL.md) contract.
 2. Render the canonical review output as one body; do not build inline comments.
 3. Post the body once via `post-pr-review.mjs` with `event: "COMMENT"`, never `"REQUEST_CHANGES"`.
-4. Create GitHub issues for canonical follow-up work and link each `#<issue>` in the review body.
+4. For canonical follow-up work, read and apply [github-issue-create](../github-issue-create/SKILL.md); that skill owns creation mechanics and title conventions. Link each created `#<issue>` in the review body.

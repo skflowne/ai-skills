@@ -14,8 +14,6 @@ When this skill is invoked directly, review the specified PR. If no PR is specif
 - Ensure tests are meaningful in preventing regressions and ensuring core software features are stable.
 - Keep the codebase maintainable and avoid unnecessary complexity from piling up.
 
-Every rule exists to serve these goals, do not blindly follow the rules if in the specific situation it would contradict the goals.
-
 ## Establish the review boundary
 
 1. Fetch the target, linked issue and discussion, repository instructions, base and head refs, and relevant code and tests.

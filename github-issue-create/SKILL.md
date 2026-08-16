@@ -103,7 +103,7 @@ gh issue comment 82 --body-file comment.md
 
 ## PR review follow-ups
 
-When creating a follow-up from a PR review, apply the title convention defined by [github-pr-review](../github-pr-review/SKILL.md): use `[PR#<number> FU] <title>`.
+When creating a follow-up from a PR review, use the canonical title format `[PR#<number> FU] <title>`.
 
 ## create-issue handoff
 
