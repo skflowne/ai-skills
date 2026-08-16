@@ -68,10 +68,34 @@ Reject and drop scenarios that reduce to “could cause unexpected behavior,” 
 
 For non-user-facing findings, the affected party is the next developer changing the code: name the realistic edit, what silently breaks or is missed, and the user-visible defect that ships. Test findings additionally use the test usefulness standard: a tautology or production test hook is evidenced by showing why the test cannot detect the claimed regression or why the proof lives at the wrong seam; do not invent extra product behavior to justify removing it.
 
+## Review output contract
+
+Report decisions, not the review process. Do not include reviewer-by-reviewer summaries, clean-area walkthroughs, rejected candidate analysis, or repeated statements that the target is clear.
+
+When no findings survive, the complete result is:
+
+```markdown
+No findings.
+
+Validation: <only material checks, if useful>
+Limitations: <only material unverified behavior, if any>
+```
+
+Omit the `Validation` or `Limitations` line when it adds no useful information. Summarize related passing checks (for example, `Validation: required Linux checks passed`) instead of dumping a routine command inventory; name exact commands only when a failure or reproducibility concern makes them material. Do not add headings, empty sections, `None` placeholders, a fix plan, follow-up section, per-expert verdicts, or prose describing what worked.
+
+When findings survive:
+
+1. Include one **Findings** section, ordered by severity. State each finding once with its evidence and realistic failure scenario. Add lens or classification as compact metadata only when the wrapper skill requires it; do not section the report by reviewer.
+2. Include **Resolution chunks** only when current-target work exists. Reference finding IDs instead of repeating their evidence or scenarios. For each chunk, state only owner/scope, outcome, dependencies, acceptance criteria, and focused validation.
+3. Include **Follow-up work** only when non-current work actually exists.
+4. End with compact `Validation` and `Limitations` lines only when material.
+
+Use only one planning representation. `Resolution chunks` is the fix plan; never repeat it as a resolution plan, categorized plan, patch list, or `Fix plan`. Omit empty categories rather than writing `None`. Internal adjudication, specialist disagreements, and dropped candidates stay out of the report unless a verified deferred risk materially affects the user's next action.
+
 ## Execution
 
 - Inspect the implementation and tests directly; do not infer quality from summaries or green commands.
 - Run focused validation when it can confirm or reject a material concern.
 - Separate a valid requirement from a proposed implementation. Do not prescribe production machinery when an external test harness, existing seam, typecheck, or no additional test is the proportional answer.
-- Report verified findings only. If none survive, say so and state material verification limitations.
+- Report verified findings only and follow the review output contract exactly.
 - When posting findings to GitHub, follow [github-pr-review](../github-pr-review/SKILL.md): post one consolidated `COMMENT` review, never inline comments or `REQUEST_CHANGES`, and organize resolution work into chunks sized for one agent.

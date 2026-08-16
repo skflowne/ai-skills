@@ -85,8 +85,9 @@ A `wrong-seam` cluster must state its invariant in one sentence — "UI always c
 
 ## Handoff
 
-0. Verify what has already been posted on the PR or as part of follow-up issues, unless something is new or has relevant new findings that should be posted as an update, it is irrelevant, therefore do not pollute the summary with it
-1. Summarize verified findings that are issues (I don't care what's working), list in order of severity and section by expert area. Tag each finding with its cluster and that cluster's classification.
-2. Recommend a fix plan (blockers first, then major, minor, nits) and organize it into the agent-sized resolution chunks defined by [github-pr-review](../github-pr-review/SKILL.md). List `wrong-seam` clusters separately, as refactor tasks with their invariant named — never folded into the patch list, even when a patch outranks them on severity.
-3. Ask the user if they accept the plan.
-4. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post all findings and resolution chunks as one consolidated review body, never as inline comments. Always post the review as a normal comment (`COMMENT`), never as a request for changes (`REQUEST_CHANGES`). Create a follow-up issue for non-blocking gaps (e2e, assertions, etc.) and reference it in the review.
+1. Drop anything already posted on the PR or tracked in a follow-up issue unless new evidence warrants an update.
+2. Follow the canonical [review output contract](../pr-review/SKILL.md#review-output-contract). If no findings survive, return only `No findings.` plus material validation or limitations, then stop the handoff; do not include five expert verdicts, clean-area summaries, empty plans, rejected candidates, or ask for plan approval.
+3. When findings survive, use one severity-ordered list. Add expert area, cluster, and classification inline as compact metadata rather than separate expert sections.
+4. Use one **Resolution chunks** section as the complete fix plan. Reference finding IDs rather than repeating evidence. Label `wrong-seam` chunks and name their invariant; do not duplicate them in a separate refactor list. Omit empty sections.
+5. Ask the user if they accept the plan.
+6. If approved, follow [github-pr-review](../github-pr-review/SKILL.md) to post the result once as a `COMMENT`, never inline or as `REQUEST_CHANGES`. Create follow-up issues only for verified work outside the current target and link them without restating their full content.

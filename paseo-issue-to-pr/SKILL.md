@@ -95,9 +95,9 @@ The review agent applies the following adjudication before posting, and the work
 - for every other eligible finding, compare fix, defer, and alternative approaches using trade-off analysis, choose, and record the decision;
 - unrelated, pre-existing, speculative, duplicate, already-recorded, or disproven findings are not current-PR work.
 
-A review is clear when it contains no verified worthwhile findings. Record deferred findings and why they were not worth doing.
+A review is clear when it contains no verified worthwhile findings. Keep disproven, duplicate, speculative, and otherwise rejected candidates internal. Mention a verified deferred finding only when it changes the user's next action or residual risk.
 
-The review body is one consolidated Pull Request Review with `event: COMMENT`, never inline comments or `REQUEST_CHANGES`. It contains the final eligible findings, agent-sized resolution chunks, and candidates dropped from the plan with a concise reason for each; omit intermediate analysis. For a clear round, use `Fix plan: None`. Whether the reviewer or controller invokes `post-pr-review.mjs`, capture and verify the permalink. After `paseo wait`, read the posted review directly and never ask the agent to reproduce its contents. Every review round must land on the PR before any fixer for that round starts.
+The review body is one consolidated Pull Request Review with `event: COMMENT`, never inline comments or `REQUEST_CHANGES`, and follows the canonical concise output contract. For a clear round, post `No findings.` plus only material validation or limitations—no headings, expert verdicts, dropped-candidate rationale, empty sections, or `Fix plan: None`. When findings exist, publish one findings list and one agent-sized resolution-chunks plan without repeating evidence between them. Whether the reviewer or controller invokes `post-pr-review.mjs`, capture and verify the permalink. After `paseo wait`, read the posted review directly and never ask the agent to reproduce its contents. Every review round must land on the PR before any fixer for that round starts.
 
 ## 3. Dispatch resolution chunks
 
@@ -128,32 +128,7 @@ Retire agents and tear down their workspace services as soon as their evidence i
 - If any round has no worthwhile findings, verify required CI, leave the PR open for human review, and publish the final workflow report as a PR comment.
 - After round 4, do not launch fixers or another review. If worthwhile findings remain, leave them unmodified as explicit residual chunks, mark the workflow `round cap reached — not verified clear`, and hand off. If none remain, mark it `clear within round cap`. Cleanup and final reporting still run in either case. Never update the PR body, merge the PR, or enable auto-merge.
 
-Post one final PR comment using the following template. Include validation, CodeGraph report links, drift-review rounds, deferred findings, and the full decision log. Use `None` when a section is empty; keep decision and refactoring items to one line.
-
-```markdown
-## Automated workflow report
-
-### Workflow status
-- <clear within round cap | round cap reached — not verified clear | hard blocker>
-
-### Validation
-- <check and result>
-
-### CodeGraph reports
-- <report link>
-
-### Drift-review rounds
-- <round summary, review permalink, and reviewer-published or controller-recovered publication path>
-
-### Deferred findings
-- <finding> — <reason deferred>
-
-### Decisions made ↔ problem solved
-- <decision> ↔ <problem it solved>
-
-### Refactoring done ↔ why it was worth it
-- <refactor> ↔ <why it was judged sufficiently likely to improve later work>
-```
+Post one concise final PR comment with the workflow status, validation result, CodeGraph report links, and drift-review permalinks. Add deferred findings, material decisions, refactors, or residual risks only when nonempty. Do not reproduce review bodies, list clear reviewer verdicts, repeat integrated chunks already visible in linked reviews/commits, or emit empty headings and `None` placeholders.
 
 If the workflow resumes, update its existing report comment rather than posting duplicates. Leave the PR body unchanged.
 
