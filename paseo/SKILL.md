@@ -57,20 +57,20 @@ Always pass `--provider`; Paseo requires an explicit provider for every launch. 
 
 ### Task brief requirements
 
-The prompt passed to each agent should include:
+The child receives its invoked skill through first-token `/skill:<name>` expansion. Do not preload that leaf skill in the controller merely to dispatch it, and do not paraphrase its workflow into the task brief. A later `/skill:` mention is ordinary text, not another expansion; tell the child to read a supporting skill only when its role needs one.
 
-- the invoked skill as the first token, for example `/skill:portolan-forge`;
-- the complete invariant the agent owns;
-- the explicit base and intended branch/PR relationship;
-- relevant user decisions and rejected alternatives;
+Pass a compact task envelope containing:
+
+- target issue, PR, or finding and the exact base/working relationship;
+- complete owned invariant, scope, and neighboring scope;
 - acceptance evidence and required validation;
 - repository constraints and protected files;
-- neighboring scope the agent must not absorb; and
+- durable decisions plus explicit authorization overrides; and
 - this instruction when Paseo already created the workspace:
 
   > Paseo has already created the dedicated worktree and branch. Use this workspace; do not create a nested worktree.
 
-Do not delegate a one-line file-edit instruction. The child must have enough context to make repository-consistent decisions without rediscovering the conversation.
+Task facts must be complete enough for fresh-context work, but reusable policy belongs to the invoked skill or its canonical reference. Pass durable artifact paths rather than transcripts or repeated raw logs.
 
 If the repository has `paseo.json`, Paseo may run its workspace setup hook. The agent must still verify the workspace has the required dependencies and setup artifacts; it must not assume the hook succeeded or reuse another checkout's dependency layout.
 

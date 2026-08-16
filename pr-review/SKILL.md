@@ -5,7 +5,7 @@ description: "Canonical code-review contract and PR review skill. Use only when 
 
 # PR Review — canonical contract
 
-This is the canonical contract for every review skill
+This is the canonical contract for every review skill in this repository. Wrappers may add topology, specialist lenses, classifications, or publication mechanics, but every reviewer and fix verifier must apply this contract and no wrapper may weaken it.
 
 When this skill is invoked directly, review the specified PR. If no PR is specified, stop and ask for it. Wrapper skills may apply this contract to an explicit branch, commit range, diff, or file target.
 
@@ -70,6 +70,8 @@ A finding without a realistic failure scenario is not a finding. Write each scen
 2. **Mechanism** — what the code does wrong at the cited location.
 3. **Real-world impact** — what someone loses, sees wrong, cannot complete, or is exposed to.
 4. **Plausibility** — how the state occurs in normal use and how often.
+
+Reject and drop scenarios that reduce to “could cause unexpected behavior,” “is not ideal,” “may break in the future,” or “a caller might misuse this.” Reject triggers excluded by call sites, types, or validation and impacts that cannot be stated concretely.
 
 For non-user-facing findings, the affected party is the next developer changing the code: name the realistic edit, what silently breaks or is missed, and the user-visible defect that ships. Test findings additionally use the test usefulness standard: a tautology or production test hook is evidenced by showing why the test cannot detect the claimed regression or why the proof lives at the wrong seam; do not invent extra product behavior to justify removing it.
 
