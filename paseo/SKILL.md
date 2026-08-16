@@ -26,7 +26,7 @@ Use the `paseo` CLI to launch durable coding-agent sessions without moving or di
 
    Honor the repository's agent/worktree instructions and check whether another active agent already owns the same invariant or branch.
 
-3. Read `paseo run --help` instead of assuming flags. Paseo is versioned independently and its CLI can change. Every launch requires an explicit `--provider`; confirm the accepted provider syntax before launching.
+3. Read `paseo run --help` instead of assuming flags. Paseo is versioned independently and its CLI can change. Every launch requires an explicit `--provider`; confirm the accepted provider syntax before launching. Use established authenticated sessions; never put credentials in prompts, logs, command arguments, or `--env`. If authentication is unavailable, use only the tool's documented auth flow or report the blocker.
 
 4. Split parallel work by complete invariants, not files. Each writer must own one concern end to end. If two tasks need to own the same invariant, shared abstraction, or integration decision, do not launch them as independent parallel writers.
 
