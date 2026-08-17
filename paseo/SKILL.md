@@ -59,7 +59,9 @@ Always pass `--provider`; Paseo requires an explicit provider for every launch. 
 
 The child receives its invoked skill through first-token `/skill:<name>` expansion. Do not preload that leaf skill in the controller merely to dispatch it, and do not paraphrase its workflow into the task brief. A later `/skill:` mention is ordinary text, not another expansion; tell the child to read a supporting skill only when its role needs one.
 
-Pass a compact task envelope containing:
+Follow the invoking workflow's prompt transport. When it explicitly declares path-only shared-artifact transport, that contract overrides the default envelope below: the artifact must contain every required task fact and instruction, and the prompt must contain only the first-token skill invocation plus the absolute artifact path. Add no other prose.
+
+Otherwise, pass a compact task envelope containing:
 
 - target issue, PR, or finding and the exact base/working relationship;
 - complete owned invariant, scope, and neighboring scope;

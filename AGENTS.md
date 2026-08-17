@@ -9,7 +9,7 @@ Treat context size as a correctness constraint. A workflow controller should car
 - Keep `/skill:<name>` as the first token when a child must apply a skill reliably. The task brief after it contains task facts and authorization deltas, not a paraphrase of the invoked skill.
 - Controllers must not read leaf skill bodies merely to dispatch them. Use their documented task and handoff interfaces; the child receives the full leaf skill through `/skill:` expansion.
 - A supporting skill named later in a task is not automatically expanded. Tell the child to read it only when that role actually needs it.
-- Do not replace required fresh-context task facts with cross-references. Target refs, intent, invariant ownership, acceptance evidence, constraints, and validation must reach the agent that acts on them.
+- Do not replace required fresh-context task facts with cross-references unless the invoked workflow explicitly defines a path-only shared-artifact transport. In that mode, the artifact is the task context: it must contain the authoritative task and every required fact, remain accessible to all workspaces, and be the only payload passed after the first-token `/skill:` invocation.
 - Prefer a concise shared reference under the canonical owner's `references/` directory when several wrappers need the same orchestration contract. Do not create another skill solely to hold prose.
 - Avoid transitive instructions such as “run another skill exactly as written.” Expose the smallest shared contract directly so an agent does not need to load an unrelated orchestration skill.
 
