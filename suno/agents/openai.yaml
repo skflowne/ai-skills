@@ -1,0 +1,4 @@
+interface:
+  display_name: "Suno Songwriter"
+  short_description: "Write production-ready Suno songs and prompts"
+  default_prompt: "Use $suno to turn this song concept into a production-ready style prompt, negative prompt, and polished lyrics."

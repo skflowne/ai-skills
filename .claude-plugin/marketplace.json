@@ -8,7 +8,7 @@
     {
       "name": "skills",
       "source": "./",
-      "description": "Reusable review, orchestration, Portolan Forge, and GitHub issue/PR skills, plus issue-to-PR, supervised implementation, review, and split-chunk workflows",
+      "description": "Reusable review, orchestration, Portolan Forge, GitHub issue/PR, and Suno songwriting skills, plus issue-to-PR, supervised implementation, review, and split-chunk workflows",
       "skills": ["./"],
       "strict": false
     }
